@@ -46,6 +46,20 @@ Connection events (`connected`, `reconnected`, `disconnected`, `error`,
 `close`) are logged through the standard `console` interface. The Mongo
 URI is masked in logs (`mongodb://user:***@host`).
 
+Connection errors are classified in `describeConnectionError()` and the
+result is included in every log/throw so the operator immediately knows
+what kind of failure they hit:
+
+- **SRV / DNS** — `mongodb+srv://` URI failed to resolve. Common on Node 24
+  + Windows where the c-ares resolver returns `ECONNREFUSED` even when
+  `nslookup` works. **Fix:** switch to the non-SRV (direct) connection
+  string from Atlas.
+- **Atlas IP whitelist** — the driver explicitly mentions "IP that isn't
+  whitelisted". **Fix:** Atlas → Network Access → add your IP (or
+  `0.0.0.0/0` for development).
+- **Auth** — wrong username/password in the URI.
+- **Network** — `ETIMEDOUT`, `ECONNRESET`, `EHOSTUNREACH`.
+
 Tunables (all optional, see `.env.example`):
 
 - `DB_SERVER_SELECTION_TIMEOUT_MS` (default 10000)
@@ -55,6 +69,17 @@ Tunables (all optional, see `.env.example`):
 The `/api/health` route reports the live `db.connected` flag plus the
 connection `host` and `name` so operators can verify Atlas wiring at a
 glance.
+
+### Quick troubleshooting recipe
+
+1. Look at the server's `[db]` log lines — they already classify the error.
+2. If you see `querySrv ECONNREFUSED` → switch `MONGODB_URI` to the
+   non-SRV direct form from Atlas.
+3. If you see "IP that isn't whitelisted" → add your IP in
+   Atlas → Network Access.
+4. If you see `Authentication failed` → check the username/password.
+5. Otherwise, check `curl /api/health` — its `db` field tells you the live
+   state regardless of whether the boot succeeded.
 
 ## Folder Layout
 

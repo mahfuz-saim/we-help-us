@@ -11,18 +11,18 @@
  *   - set up graceful shutdown
  */
 
-require('dotenv').config();
+require("dotenv").config();
 
-const http = require('http');
+const http = require("http");
 
-const { createApp } = require('./app');
-const { configureCloudinary } = require('./config/cloudinary');
-const { connectDB, isConnected, disconnectDB } = require('./config/db');
-const { initSocket } = require('./sockets');
+const { createApp } = require("./app");
+const { configureCloudinary } = require("./config/cloudinary");
+const { connectDB, isConnected, disconnectDB } = require("./config/db");
+const { initSocket } = require("./sockets");
 
 const PORT = Number(process.env.PORT) || 5000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const isProd = NODE_ENV === 'production';
+const NODE_ENV = process.env.NODE_ENV || "development";
+const isProd = NODE_ENV === "production";
 
 async function main() {
   // 1) Cloudinary — configure if creds present, skip silently otherwise.
@@ -38,7 +38,7 @@ async function main() {
     await connectDB();
     if (isConnected()) {
       // eslint-disable-next-line no-console
-      console.log('[db] MongoDB connected');
+      console.log("[db] MongoDB connected");
     }
   } catch (err) {
     if (isProd) {
@@ -54,13 +54,13 @@ async function main() {
   const app = createApp();
   const httpServer = http.createServer(app);
 
-  const corsOrigin = process.env.CLIENT_ORIGIN || '*';
+  const corsOrigin = process.env.CLIENT_ORIGIN || "*";
   initSocket(httpServer, { corsOrigin });
 
   httpServer.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(
-      `[server] listening on http://localhost:${PORT}  (env=${NODE_ENV})`
+      `[server] listening on http://localhost:${PORT}  (env=${NODE_ENV})`,
     );
   });
 
@@ -83,12 +83,12 @@ async function main() {
     setTimeout(() => process.exit(1), 10000).unref();
   };
 
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {
   // eslint-disable-next-line no-console
-  console.error('[server] fatal startup error:', err);
+  console.error("[server] fatal startup error:", err);
   process.exit(1);
 });
