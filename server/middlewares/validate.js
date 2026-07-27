@@ -6,6 +6,9 @@
  *   router.post('/foo', validate(schema), handler);
  *
  * On failure: responds 400 with { success:false, message, details }.
+ *   - `message`: a single-line summary that includes the first failing
+ *     field's path + message so simple clients get something readable.
+ *   - `details.issues`: the full structured list for richer clients.
  * On success: replaces `req.body` with the parsed (and typed) value.
  */
 
@@ -19,8 +22,12 @@ function validate(schema, source = 'body') {
         path: i.path.join('.'),
         message: i.message,
       }));
+      const first = issues[0];
+      const summary = first
+        ? `${first.path}: ${first.message}`
+        : 'Validation failed';
       return next(
-        new ApiError(400, 'Validation failed', { issues, source })
+        new ApiError(400, summary, { issues, source })
       );
     }
     req[source] = result.data;

@@ -122,25 +122,36 @@ const userSchema = new mongoose.Schema(
     },
 
     location: {
+      // Optional at registration time (Module 1.2). The route layer
+      // accepts it as optional; later modules (e.g. 4.1 Resource Search)
+      // can require it through a "complete profile" step.
+      // When present, MUST be a valid GeoJSON Point with [lng, lat]
+      // coordinates inside the standard ranges.
+      //
+      // We deliberately do NOT set a default on the inner `type` field.
+      // If we did, Mongoose would persist `location: { type: 'Point' }`
+      // even when the caller provided no coordinates — and the 2dsphere
+      // index would then reject the document ("Can't extract geo keys").
+      // `sparse: true` on the index covers the same case for documents
+      // that omit `location` entirely.
       type: {
         type: String,
         enum: ['Point'],
-        required: true,
-        default: 'Point',
       },
       coordinates: {
         type: [Number], // [longitude, latitude]
-        required: true,
         validate: {
           validator: (arr) =>
-            Array.isArray(arr) &&
-            arr.length === 2 &&
-            Number.isFinite(arr[0]) &&
-            Number.isFinite(arr[1]) &&
-            arr[0] >= -180 &&
-            arr[0] <= 180 &&
-            arr[1] >= -90 &&
-            arr[1] <= 90,
+            arr === undefined ||
+            arr === null ||
+            (Array.isArray(arr) &&
+              arr.length === 2 &&
+              Number.isFinite(arr[0]) &&
+              Number.isFinite(arr[1]) &&
+              arr[0] >= -180 &&
+              arr[0] <= 180 &&
+              arr[1] >= -90 &&
+              arr[1] <= 90),
           message:
             'location.coordinates must be [lng, lat] within valid ranges',
         },
@@ -175,7 +186,12 @@ const userSchema = new mongoose.Schema(
 // `unique: true` on email and phone is declared inline on the field
 // definitions above; Mongoose turns that into a unique index. The 2dsphere
 // index and the role+isActive compound index are declared explicitly here.
-userSchema.index({ location: '2dsphere' }, { name: 'geo_location' });
+// `sparse: true` so documents without a `location` field (e.g. fresh
+// registrations before the user completes their profile) are skipped by
+// the geo index. Without this, MongoDB rejects any document whose
+// `location` exists but has no `coordinates` array — see
+// "Can't extract geo keys" errors during /api/auth/register.
+userSchema.index({ location: '2dsphere' }, { name: 'geo_location', sparse: true });
 // Compound index used by moderator dashboards (Module 5.5/6.x) to
 // quickly find active users by role in an area.
 userSchema.index({ role: 1, isActive: 1 }, { name: 'role_active' });
@@ -183,15 +199,13 @@ userSchema.index({ role: 1, isActive: 1 }, { name: 'role_active' });
 // ── Password hashing ───────────────────────────────────────────────────────
 // bcrypt on every save where password is dirty. Cost 12 is the project's
 // default — tune via BCRYPT_COST env var later if needed.
-userSchema.pre('save', async function hashPassword(next) {
-  try {
-    if (!this.isModified('password')) return next();
-    const salt = await bcrypt.genSalt(BCRYPT_COST);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (err) {
-    next(err);
-  }
+//
+// Mongoose 9+ supports async pre-hooks that return a Promise — no `next`
+// callback needed. Throwing inside the hook rejects the save.
+userSchema.pre('save', async function hashPassword() {
+  if (!this.isModified('password')) return;
+  const salt = await bcrypt.genSalt(BCRYPT_COST);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 // ── Instance methods ───────────────────────────────────────────────────────
