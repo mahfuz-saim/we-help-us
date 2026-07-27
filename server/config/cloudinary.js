@@ -1,12 +1,16 @@
 /**
  * Cloudinary configuration.
  *
- * Actual upload helpers are wired up in later modules (Resource Registration,
- * User Profile). For Module 0.2 this just configures the SDK with env values
- * so it's ready to use, and exposes the configured instance.
+ * Module 1.4 starts exercising this for the user-avatar upload. The SDK
+ * is configured once at boot if CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET
+ * are all present. If not, the server still boots — uploads become a
+ * clean 503 with a friendly message. Routes that need Cloudinary should
+ * call `isCloudinaryConfigured()` before invoking the SDK.
  */
 
 const cloudinary = require('cloudinary').v2;
+
+let configured = false;
 
 function configureCloudinary() {
   const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } =
@@ -26,7 +30,12 @@ function configureCloudinary() {
     secure: true,
   });
 
+  configured = true;
   return true;
 }
 
-module.exports = { cloudinary, configureCloudinary };
+function isCloudinaryConfigured() {
+  return configured;
+}
+
+module.exports = { cloudinary, configureCloudinary, isCloudinaryConfigured };

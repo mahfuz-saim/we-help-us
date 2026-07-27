@@ -2,13 +2,18 @@
  * Multer upload middleware.
  *
  * Enforces the project-wide photo upload rules (KEY DESIGN REMINDERS):
- *   - Max 5 files per request
+ *   - Max 5 files per request (applies to multi-file uploads only —
+ *     `uploadAvatar` is a single-file endpoint and inherits the same
+ *     per-file size + mime constraints)
  *   - Max 5 MB per file
  *   - Image mime types only (jpeg, jpg, png, webp, gif)
  *
  * Routes that accept photos should use `upload.array('photos', 5)`.
  * Field name is `photos` by convention — the registration form uses
  * the same name in Module 3.4.
+ *
+ * Routes that accept a single avatar should use `uploadAvatar('avatar')`
+ * (added in Module 1.4 for the user-profile endpoint).
  */
 
 const multer = require('multer');
@@ -81,9 +86,40 @@ function uploadPhotos(fieldName = 'photos') {
   };
 }
 
+/**
+ * Single-file variant for the avatar endpoint (Module 1.4).
+ *
+ * Same 5 MB cap and image mime filter as `uploadPhotos` — the fileFilter
+ * and limits live on the underlying multer instance, so we inherit them
+ * automatically.
+ */
+function uploadAvatar(fieldName = 'avatar') {
+  const handler = upload.single(fieldName);
+  return (req, res, next) => {
+    handler(req, res, (err) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return next(
+            new ApiError(400, `Avatar must be under 5 MB.`)
+          );
+        }
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return next(
+            new ApiError(400, `Unexpected file field: ${err.field}`)
+          );
+        }
+        return next(new ApiError(400, err.message));
+      }
+      return next(err);
+    });
+  };
+}
+
 module.exports = {
   upload,
   uploadPhotos,
+  uploadAvatar,
   MAX_FILES,
   MAX_FILE_SIZE_BYTES,
   ALLOWED_MIME_TYPES: Array.from(ALLOWED_MIME_TYPES),

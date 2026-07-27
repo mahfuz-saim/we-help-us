@@ -4,6 +4,7 @@ import MainLayout from './layouts/MainLayout.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 import HealthPage from './pages/HealthPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
@@ -24,9 +25,9 @@ export default function App() {
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
 
-        {/* Authenticated — added in Phase 1.3 */}
+        {/* Authenticated — Module 1.3 + 1.4 */}
         <Route element={<ProtectedRoute />}>
-          <Route path="profile" element={<HomePage placeholder="Profile (1.4)" />} />
+          <Route path="profile" element={<ProfilePage />} />
         </Route>
 
         {/* Owner-only — added in Phase 3.5 */}
