@@ -76,7 +76,10 @@ Default ports: server `5000`, client `5173`.
   - `feat(server): ...`, `feat(client): ...`, `fix(...)`, `chore(...)`, `docs(...)`, `style(...)`, `refactor(...)`, `test(...)`
 - One module per commit; push to `develop` after every completed module.
 
-See `plan.txt` (git-ignored, in this repo only) for the full phased roadmap and `progress.txt` for live status.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow, branch
+protection settings, and project rules (privacy, role escalation, upload
+limits). `plan.txt` (git-ignored, in this repo only) holds the full phased
+roadmap and `progress.txt` tracks live module status.
 
 ---
 
