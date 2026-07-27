@@ -31,6 +31,31 @@ Default port: **5000** (override with `PORT`).
 Feature endpoints land in later modules (auth, areas, resources, requests,
 moderator, notifications, analytics).
 
+## MongoDB Connection (Module 0.4)
+
+`server/config/db.js` wires up the Mongoose connection on boot:
+
+- **Production (`NODE_ENV=production`)**: missing or unreachable `MONGODB_URI`
+  is **fatal** — the server exits with code 1. No traffic without a DB.
+- **Development**: missing `MONGODB_URI` warns and boots anyway (so the
+  health route still works). Unreachable URI is retried with exponential
+  backoff (default 5 attempts, configurable via `DB_MAX_RETRIES`); if all
+  fail, the server continues with `db.connected=false`.
+
+Connection events (`connected`, `reconnected`, `disconnected`, `error`,
+`close`) are logged through the standard `console` interface. The Mongo
+URI is masked in logs (`mongodb://user:***@host`).
+
+Tunables (all optional, see `.env.example`):
+
+- `DB_SERVER_SELECTION_TIMEOUT_MS` (default 10000)
+- `DB_CONNECT_TIMEOUT_MS` (default 10000)
+- `DB_MAX_RETRIES` (default 5, dev-only)
+
+The `/api/health` route reports the live `db.connected` flag plus the
+connection `host` and `name` so operators can verify Atlas wiring at a
+glance.
+
 ## Folder Layout
 
 ```
@@ -38,7 +63,7 @@ server/
 ├── app.js                  # Express app factory (no port binding)
 ├── server.js               # HTTP + Socket.io entry point
 ├── config/
-│   ├── db.js               # MongoDB connection (wired in Module 0.4)
+│   ├── db.js               # MongoDB connection (Module 0.4)
 │   └── cloudinary.js       # Cloudinary SDK configuration
 ├── controllers/            # Feature controllers (added per module)
 ├── middlewares/

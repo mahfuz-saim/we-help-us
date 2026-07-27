@@ -4,7 +4,7 @@
  * Responsibilities:
  *   - load env
  *   - configure Cloudinary
- *   - attempt MongoDB connection (Module 0.4 — skipped gracefully for now)
+ *   - connect to MongoDB (Module 0.4) — fail-fast in production
  *   - create the Express app
  *   - create the HTTP server and attach Socket.io
  *   - listen on PORT
@@ -17,18 +17,23 @@ const http = require('http');
 
 const { createApp } = require('./app');
 const { configureCloudinary } = require('./config/cloudinary');
-const { connectDB, isConnected } = require('./config/db');
+const { connectDB, isConnected, disconnectDB } = require('./config/db');
 const { initSocket } = require('./sockets');
 
 const PORT = Number(process.env.PORT) || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProd = NODE_ENV === 'production';
 
 async function main() {
   // 1) Cloudinary — configure if creds present, skip silently otherwise.
   configureCloudinary();
 
-  // 2) MongoDB — best-effort connect on boot. If MONGODB_URI is set but
-  //    unreachable we log and keep serving so the health route still works.
+  // 2) MongoDB — connect before we start accepting traffic.
+  //
+  //    - In production: any error here is fatal (see connectDB() docs).
+  //    - In development: connectDB() resolves with `null` if MONGODB_URI
+  //      is missing or unreachable; the server still boots so the
+  //      /api/health route works for smoke-testing.
   try {
     await connectDB();
     if (isConnected()) {
@@ -36,11 +41,13 @@ async function main() {
       console.log('[db] MongoDB connected');
     }
   } catch (err) {
+    if (isProd) {
+      // eslint-disable-next-line no-console
+      console.error(`[db] FATAL: ${err.message}`);
+      process.exit(1);
+    }
     // eslint-disable-next-line no-console
-    console.warn(
-      `[db] MongoDB connection skipped/failed: ${err.message}. ` +
-        'This is expected before Module 0.4 is wired up.'
-    );
+    console.warn(`[db] ${err.message}`);
   }
 
   // 3) Express + HTTP + Socket.io
@@ -58,12 +65,14 @@ async function main() {
   });
 
   // 4) Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     // eslint-disable-next-line no-console
     console.log(`[server] received ${signal}, shutting down...`);
     httpServer.close(async () => {
       try {
-        const { disconnectDB } = require('./config/db');
         await disconnectDB();
       } catch {
         /* ignore */
