@@ -399,4 +399,7 @@ module.exports = {
   updateResource,
   deleteResource,
   nearbyResources,
+  // Exported so the moderator controller (Module 6.1) can reuse the
+  // privacy strip without duplicating the field list.
+  publicResource,
 };
