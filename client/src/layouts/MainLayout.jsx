@@ -61,6 +61,14 @@ export default function MainLayout() {
                     My Requests
                   </NavLink>
                 )}
+                {user.role === 'OWNER' && (
+                  <NavLink
+                    to="/owner/requests"
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    Incoming
+                  </NavLink>
+                )}
                 <NavLink
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}

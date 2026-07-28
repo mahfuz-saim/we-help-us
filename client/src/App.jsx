@@ -9,6 +9,7 @@ import HealthPage from './pages/HealthPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import ResourceRegisterPage from './pages/owner/ResourceRegisterPage.jsx';
 import OwnerDashboardPage from './pages/owner/OwnerDashboardPage.jsx';
+import OwnerRequestsPage from './pages/owner/OwnerRequestsPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
@@ -44,7 +45,8 @@ export default function App() {
           <Route path="resources/:id" element={<ResourceDetailsPage />} />
         </Route>
 
-        {/* Owner-only — dashboard (3.5) + registration form (3.4) */}
+        {/* Owner-only — dashboard (3.5) + registration form (3.4) +
+            incoming requests inbox (5.4) */}
         <Route element={<ProtectedRoute roles={['OWNER']} />}>
           <Route
             path="owner/resources"
@@ -53,6 +55,10 @@ export default function App() {
           <Route
             path="owner/resources/new"
             element={<ResourceRegisterPage />}
+          />
+          <Route
+            path="owner/requests"
+            element={<OwnerRequestsPage />}
           />
         </Route>
 

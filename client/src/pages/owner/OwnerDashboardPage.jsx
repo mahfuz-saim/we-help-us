@@ -57,6 +57,7 @@ import {
   useMyResources,
   useToggleAvailability,
 } from '../../hooks/useMyResources';
+import { useActiveRequestCount } from '../../hooks/useOwnerRequests';
 
 const STATUS_FILTERS = Object.freeze([
   { value: null,         label: 'All' },
@@ -92,6 +93,16 @@ export default function OwnerDashboardPage() {
   const toggle = useToggleAvailability();
   const del = useDeleteResource();
   const qc = useQueryClient();
+
+  // ── Active request counter (Module 5.4) ─────────────────────────────
+  // The OWNER's "incoming requests" inbox lives at /owner/requests; we
+  // surface a tiny badge on this dashboard so the OWNER sees pending
+  // request volume at a glance without having to drill into the inbox.
+  // The hook fetches with a 1-minute staleTime so toggling a resource's
+  // status doesn't re-fetch the counter.
+  const activeCountQuery = useActiveRequestCount({
+    enabled: Boolean(user),
+  });
 
   // If we just landed from the registration form, refresh the list once
   // and surface a confirmation toast. The URL `?new=<id>` is the only
@@ -148,7 +159,12 @@ export default function OwnerDashboardPage() {
   // ── Render ───────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <Header user={user} onRefresh={() => qc.invalidateQueries({ queryKey: ['my-resources'] })} />
+      <Header
+        user={user}
+        onRefresh={() => qc.invalidateQueries({ queryKey: ['my-resources'] })}
+        activeCount={activeCountQuery.data?.total || 0}
+        activeCountLoading={activeCountQuery.isLoading}
+      />
 
       <StatusFilters value={statusFilter} onChange={setStatusFilter} />
 
@@ -201,7 +217,7 @@ export default function OwnerDashboardPage() {
 
 // ── Header ────────────────────────────────────────────────────────────────
 
-function Header({ user, onRefresh }) {
+function Header({ user, onRefresh, activeCount = 0, activeCountLoading = false }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -216,6 +232,34 @@ function Header({ user, onRefresh }) {
             'Loading…'
           )}
         </p>
+        {/* Module 5.4 — pending-requests counter. The badge links to
+            the OWNER's inbox so a one-tap "see what's pending" path
+            is always available from the dashboard. We render the
+            link as a single block (no separate counter / link split)
+            so screen-readers don't have to navigate two elements. */}
+        <div className="mt-2">
+          <Link
+            to="/owner/requests"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <span>Incoming requests</span>
+            <span
+              aria-label={
+                activeCount === 0
+                  ? 'No pending incoming requests'
+                  : `${activeCount} pending incoming request${activeCount === 1 ? '' : 's'}`
+              }
+              className={
+                'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-semibold ' +
+                (activeCount > 0
+                  ? 'bg-alert-700 text-white'
+                  : 'bg-slate-100 text-slate-600')
+              }
+            >
+              {activeCountLoading ? '…' : activeCount}
+            </span>
+          </Link>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <button

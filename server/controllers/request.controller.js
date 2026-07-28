@@ -107,20 +107,42 @@ function contactInfo(user) {
 function publicRequest(doc, { revealContacts = false, populated } = {}) {
   if (!doc) return null;
   const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  // Helper: stringify an ObjectId-shaped field. After toJSON, populated
+  // subdocs become plain objects like `{ _id: ObjectId, name: 'Carol' }`
+  // — calling `.toString()` on that returns "[object Object]" which is
+  // why we extract `_id` explicitly here. Used for the id fields we
+  // want to keep as plain strings regardless of population state
+  // (Module 5.4 added population for the OWNER list, but the wire
+  // shape — ids as strings — is unchanged for backwards compatibility
+  // with the 5.3 volunteer dashboard).
+  // Helper: stringify an ObjectId-shaped field. After toJSON, populated
+  // subdocs lose their `_id` field (Mongoose transforms emit `id`
+  // instead — a string), so we look up both. If neither is present,
+  // fall back to the populated Mongoose document's own toString (which
+  // returns its `_id`). This is the only path that keeps the wire
+  // shape stable after Module 5.4 added list population; the 5.3
+  // volunteer dashboard still reads `request.volunteerId` as a string.
+  const stringId = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'string') return v;
+    if (v instanceof Buffer) return v.toString();
+    if (v && v._id) {
+      const id = v._id;
+      if (typeof id === 'string') return id;
+      if (id && typeof id.toString === 'function') return id.toString();
+    }
+    if (v && typeof v.id === 'string') return v.id;
+    if (v && typeof v.toString === 'function' && v.toString !== Object.prototype.toString) {
+      const s = v.toString();
+      if (s && s !== '[object Object]') return s;
+    }
+    return null;
+  };
   const base = {
     id: obj.id,
-    resourceId:
-      typeof obj.resourceId === 'string'
-        ? obj.resourceId
-        : obj.resourceId?.toString(),
-    ownerId:
-      typeof obj.ownerId === 'string'
-        ? obj.ownerId
-        : obj.ownerId?.toString(),
-    volunteerId:
-      typeof obj.volunteerId === 'string'
-        ? obj.volunteerId
-        : obj.volunteerId?.toString(),
+    resourceId: stringId(obj.resourceId),
+    ownerId: stringId(obj.ownerId),
+    volunteerId: stringId(obj.volunteerId),
     status: obj.status,
     requestedAt: obj.requestedAt,
     approvedAt: obj.approvedAt,
@@ -358,16 +380,38 @@ async function listRequests(req, res, next) {
       ResourceRequest.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        // Module 5.4 enhancement — populate summaries so the OWNER
+        // dashboard can render volunteer name + resource title without
+        // a second round-trip per row. populate() takes a Mongo-style
+        // field selector; requesting only `name` keeps the wire small
+        // and is the smallest possible surface for the response. The
+        // privacy helper `publicRequest` only surfaces these as
+        // `.volunteerSummary` / `.resource` blocks — `.email` /
+        // `.phone` are NEVER surfaced here (the list endpoint is
+        // gated to summaries only; contact reveal is a per-request
+        // action's response).
+        .populate('volunteerId', 'name')
+        .populate('resourceId', 'category title status'),
       ResourceRequest.countDocuments(filter),
     ]);
 
     // Populate summaries (no contact reveal on the list — that's
-    // a per-request action). Owner / volunteer IDs are sufficient.
+    // a per-request action). The populated `volunteerId` carries only
+    // `name` (no email/phone) so the helper can safely elevate it to
+    // `volunteerSummary`. Same for `resourceId` (category/title/status
+    // — no contact surface). Owner / volunteer IDs are sufficient.
     return ok(
       res,
       {
-        requests: docs.map((d) => publicRequest(d)),
+        requests: docs.map((d) =>
+          publicRequest(d, {
+            populated: {
+              volunteer: d.volunteerId,
+              resource: d.resourceId,
+            },
+          })
+        ),
         pagination: {
           page,
           limit,

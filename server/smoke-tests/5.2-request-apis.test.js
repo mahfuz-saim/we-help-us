@@ -786,19 +786,42 @@ async function run() {
     assert(!hasContactLeak(aliceList.body), '  owner list no leak');
 
     // The list endpoint shapes never include .email/.phone on the
-    // owner / volunteer keys. Confirm the response is "summary only"
-    // (only `name` populated on populated user keys; or, if not
-    // populated, just an id string).
+    // owner / volunteer keys. The list MAY include summary fields
+    // (volunteerSummary.name, resource.title) — Module 5.4 added
+    // these so the OWNER dashboard can render names without a
+    // second round-trip. The privacy assertion is "no contact
+    // info", which `hasContactLeak` already covers; here we just
+    // sanity-check that the populated fields are summaries (have
+    // `name`) and that the raw user/resource documents never
+    // appear inline.
     const requests = aliceList.body.data.requests;
     for (const r of requests) {
-      // r carries ownerId / volunteerId as strings (the list is
-      // not populated), and never enriches them with contact info.
-      assert(typeof r.ownerId === 'string', '  ownerId is a string (no enrichment)');
-      assert(typeof r.volunteerId === 'string', '  volunteerId is a string (no enrichment)');
+      // r carries ownerId / volunteerId as strings (the OWNER is
+      // the caller, so the OWNER-side id stays as a string; the
+      // volunteerId is the populated user with `name` only).
+      assert(typeof r.ownerId === 'string', '  ownerId is a string');
+      assert(typeof r.volunteerId === 'string', '  volunteerId is a string');
       assert(!r.owner, '  no .owner block on list items');
       assert(!r.volunteer, '  no .volunteer block on list items');
-      assert(!r.ownerSummary, '  no .ownerSummary on list items');
-      assert(!r.volunteerSummary, '  no .volunteerSummary on list items');
+      // volunteerSummary is now present (Module 5.4 populates it
+      // for the OWNER list); the privacy guarantee is that it
+      // carries ONLY `name` + `id` — no email/phone.
+      if (r.volunteerSummary) {
+        assert(
+          r.volunteerSummary.name && !r.volunteerSummary.email && !r.volunteerSummary.phone,
+          '  volunteerSummary carries name only — no contact leak'
+        );
+      }
+      // resource summary may also appear (Module 5.4 populates
+      // category/title/status) — sanity-check no contact surface.
+      if (r.resource) {
+        assert(
+          r.resource.title && r.resource.category,
+          '  resource summary carries title + category'
+        );
+        assert(!r.resource.email, '  no .email on resource summary');
+        assert(!r.resource.phone, '  no .phone on resource summary');
+      }
     }
   }
 
