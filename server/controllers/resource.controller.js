@@ -175,6 +175,37 @@ async function listResources(req, res, next) {
         { description: { $regex: safe, $options: 'i' } },
       ];
     }
+    // `?minCapacity=N` keeps only resources with capacity >= N. The
+    // validator guarantees a non-negative integer string. Resources
+    // without a `capacity` field (null) are intentionally excluded
+    // — the spec treats capacity as "this can hold N people", so an
+    // unspecified capacity shouldn't match a "at least 3" search.
+    if (req.query.minCapacity !== undefined) {
+      filter.capacity = { $gte: Number(req.query.minCapacity) };
+    }
+    // `?lat=…&lng=…&radius=…` keeps resources within `radius` meters
+    // of (lat, lng). We use `$geoWithin / $centerSphere` so the
+    // existing 2dsphere index on `location` (Module 3.1) keeps the
+    // query cheap AND skip/limit/countDocuments still work normally.
+    // `$centerSphere` expects the radius in radians; we convert from
+    // meters using Earth's mean radius (6378100 m) — same approach
+    // the /nearby endpoint uses for its Haversine distance math.
+    // The validator has already enforced the lat+lng+radius compose
+    // rules, so this branch only fires when all three are present.
+    if (
+      req.query.lat !== undefined &&
+      req.query.lng !== undefined &&
+      req.query.radius !== undefined
+    ) {
+      const lat = Number(req.query.lat);
+      const lng = Number(req.query.lng);
+      const radius = Number(req.query.radius);
+      filter.location = {
+        $geoWithin: {
+          $centerSphere: [[lng, lat], radius / 6378100],
+        },
+      };
+    }
 
     const page = req.query.page ? parseInt(req.query.page, 10) : 1;
     const limit = Math.min(

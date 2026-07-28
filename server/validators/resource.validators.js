@@ -137,6 +137,46 @@ const listResourcesQuerySchema = z
       .string()
       .regex(/^1$/, 'mine must be 1')
       .optional(),
+    // Module 4.1's search page adds two more filters. Both are
+    // validated here so the controller can stay simple.
+    // - `minCapacity` is a positive integer (>=0). The controller
+    //   turns it into `{ capacity: { $gte: n } }`. Resources without
+    //   a capacity field (null) are intentionally excluded — that's
+    //   the right semantics for "show me resources that hold at
+    //   least N".
+    minCapacity: z
+      .string()
+      .regex(/^\d+$/, 'minCapacity must be a non-negative integer')
+      .optional(),
+    // - `lat` / `lng` / `radius` is the geo-distance filter. lat and
+    //   lng must be present together; if only one is set we 400 so
+    //   a sloppy caller doesn't silently filter to "anywhere on
+    //   earth". `radius` requires both lat+lng (it's a no-op without
+    //   a center). radius is in meters, capped at 100km — same cap
+    //   the /nearby endpoint uses.
+    lat: z
+      .string()
+      .regex(/^-?\d+(\.\d+)?$/, 'lat must be a number')
+      .refine((s) => {
+        const n = Number(s);
+        return n >= -90 && n <= 90;
+      }, 'lat must be between -90 and 90')
+      .optional(),
+    lng: z
+      .string()
+      .regex(/^-?\d+(\.\d+)?$/, 'lng must be a number')
+      .refine((s) => {
+        const n = Number(s);
+        return n >= -180 && n <= 180;
+      }, 'lng must be between -180 and 180')
+      .optional(),
+    radius: z
+      .string()
+      .regex(/^[1-9]\d*$/, 'radius must be a positive integer (meters)')
+      .refine((s) => {
+        return Number(s) <= 100000;
+      }, 'radius cannot exceed 100000 meters (100 km)')
+      .optional(),
     page: z
       .string()
       .regex(/^[1-9]\d*$/, 'page must be a positive integer')
@@ -146,7 +186,24 @@ const listResourcesQuerySchema = z
       .regex(/^[1-9]\d*$/, 'limit must be a positive integer')
       .optional(),
   })
-  .strict();
+  .strict()
+  // Compose refinement: if lat or lng is present without the other,
+  // reject — a half-specified geo filter is almost certainly a bug.
+  // Same for radius without a center.
+  .refine(
+    (obj) => {
+      const hasLat = obj.lat !== undefined;
+      const hasLng = obj.lng !== undefined;
+      const hasRadius = obj.radius !== undefined;
+      if ((hasLat && !hasLng) || (hasLng && !hasLat)) return false;
+      if (hasRadius && (!hasLat || !hasLng)) return false;
+      return true;
+    },
+    {
+      message:
+        'lat and lng must appear together; radius also requires both lat and lng',
+    }
+  );
 
 // GET /api/resources/nearby — lat/lng required, radius optional (meters).
 const nearbyQuerySchema = z

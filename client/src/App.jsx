@@ -9,6 +9,7 @@ import HealthPage from './pages/HealthPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import ResourceRegisterPage from './pages/owner/ResourceRegisterPage.jsx';
 import OwnerDashboardPage from './pages/owner/OwnerDashboardPage.jsx';
+import SearchPage from './pages/SearchPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -30,6 +31,8 @@ export default function App() {
         {/* Authenticated — Module 1.3 + 1.4 */}
         <Route element={<ProtectedRoute />}>
           <Route path="profile" element={<ProfilePage />} />
+          {/* Resource search (Module 4.1) — any logged-in role. */}
+          <Route path="resources" element={<SearchPage />} />
         </Route>
 
         {/* Owner-only — dashboard (3.5) + registration form (3.4) */}
