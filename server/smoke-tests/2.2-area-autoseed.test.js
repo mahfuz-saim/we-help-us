@@ -47,6 +47,14 @@ async function run() {
     typeof first.districts === 'number' && first.districts > 0,
     `seedAreasIfEmpty seeded at least 1 district (got ${first && first.districts})`
   );
+  // Upazila count should be > 0 and match the sum across all districts
+  // of `upazilasForDistrict(name).length`. We assert a lower bound to
+  // catch a regression where someone accidentally reverts to the
+  // synthetic 3-per-district pattern.
+  assert(
+    first.upazilas >= 400,
+    `seedAreasIfEmpty seeded ≥ 400 upazilas (got ${first.upazilas})`
+  );
 
   const after = await Area.countDocuments({});
   assert(after > 0, `Area collection now has documents (count=${after})`);

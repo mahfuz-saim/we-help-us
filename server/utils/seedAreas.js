@@ -18,22 +18,25 @@
  * Hierarchy that this function materialises:
  *   District → Upazila → Union → Ward → Village
  *
- * Districts come from `utils/bangladeshAreas.js` (all real Bangladesh
- * district names). Lower levels are generated deterministically from
- * each district name (e.g. `<District> North → East → Ward 1 → A`,
- * etc.). Boundary polygons are intentionally omitted — Module 4.3
- * owns them.
+ * Districts come from `utils/bangladeshAreas.js` (all 65 entries from
+ * the canonical slug list). Upazilas come from the operator-supplied
+ * DISTRICT_UPAZILAS map (real names, ~500 total). Districts without
+ * a real mapping fall back to the synthetic "<District> <Cardinal>"
+ * pattern. Unions, wards, and villages are still generated
+ * deterministically from each parent name (e.g. `<upazila-root> East
+ * → Ward 1 → A`, etc.) — real names for those levels will be
+ * imported from data.gov.bd exports in a later phase. Boundary
+ * polygons are intentionally omitted — Module 4.3 owns them.
  */
 
 const mongoose = require('mongoose');
 const Area = require('../models/Area');
 const {
   DISTRICTS,
-  UPAZILAS_PER_DISTRICT,
+  upazilasForDistrict,
   UNIONS_PER_UPAZILA,
   WARDS_PER_UNION,
   VILLAGES_PER_WARD,
-  CARDINALS,
   UNION_NAMES,
   WARD_NUMBERS,
   VILLAGE_LETTERS,
@@ -86,13 +89,19 @@ async function seedAreas(opts = {}) {
   );
 
   // ── 2. Upazilas ────────────────────────────────────────────────────────
+  // Use real upazila names from DISTRICT_UPAZILAS when available, fall
+  // back to the synthetic "<District> <Cardinal>" pattern otherwise.
+  // The number of children per district therefore varies (Cumilla has
+  // 17 real upazilas, Bandarban has 7, etc.) — that's fine, the
+  // cascading dropdown iterates over whatever count comes back.
   const upazilaDocs = [];
   for (const d of insertedDistricts) {
-    for (let i = 0; i < UPAZILAS_PER_DISTRICT; i += 1) {
+    const names = upazilasForDistrict(d.name);
+    for (const name of names) {
       upazilaDocs.push({
         country: COUNTRY,
         level: Area.LEVELS.UPAZILA,
-        name: `${d.name} ${CARDINALS[i] || `Upazila ${i + 1}`}`,
+        name,
         parentId: d._id,
       });
     }

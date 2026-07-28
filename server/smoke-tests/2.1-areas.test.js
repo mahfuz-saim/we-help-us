@@ -10,14 +10,17 @@
  * uses, then exercises every cascading-dropdown scenario:
  *
  *   - GET /api/areas (no query) → 400 (must specify level or parent)
- *   - GET /api/areas?level=DISTRICT → all 64 districts
+ *   - GET /api/areas?level=DISTRICT → all 65 districts
  *   - GET /api/areas?parent=<districtId> → upazilas of that district
+ *     (REAL names from DISTRICT_UPAZILAS — varies per district, e.g.
+ *     Dhaka has 5, Cumilla has 17, Bandarban has 7, etc.)
  *   - GET /api/areas?level=UPAZILA&parent=<districtId> → same as above
  *   - GET /api/areas?level=XYZ → 400 (invalid level)
  *   - GET /api/areas?parent=not-an-objectid → 400
  *   - GET /api/areas?parent=<bogus but valid id> → 200 with empty list
  *   - Cascade depth: districts → upazilas → unions → wards → villages
- *     each yielding the expected count from the seed config
+ *     (unions / wards / villages are still mock; counts come from
+ *     UNIONS_PER_UPAZILA / WARDS_PER_UNION / VILLAGES_PER_WARD)
  *   - Idempotency: re-running seedAreas() wipes & reinserts cleanly
  *   - Caching: results are sorted by name ascending
  *
@@ -40,7 +43,8 @@ const Area = require('../models/Area');
 const { seedAreas } = require('../utils/seedAreas');
 const {
   DISTRICTS,
-  UPAZILAS_PER_DISTRICT,
+  DISTRICT_UPAZILAS,
+  upazilasForDistrict,
   UNIONS_PER_UPAZILA,
   WARDS_PER_UNION,
   VILLAGES_PER_WARD,
@@ -116,12 +120,15 @@ async function run() {
     '  (sanity) districts is a positive number'
   );
   assert(
-    seeded.upazilas === DISTRICTS.length * UPAZILAS_PER_DISTRICT,
-    `seed inserted ${DISTRICTS.length} × ${UPAZILAS_PER_DISTRICT} = ${DISTRICTS.length * UPAZILAS_PER_DISTRICT} upazilas`
+    seeded.upazilas === DISTRICTS.reduce(
+      (sum, d) => sum + upazilasForDistrict(d.name).length,
+      0
+    ),
+    `seed inserted the expected number of upazilas (sum of DISTRICT_UPAZILAS counts = ${DISTRICTS.reduce((sum, d) => sum + upazilasForDistrict(d.name).length, 0)})`
   );
   assert(
-    seeded.unions === seeded.districts * UPAZILAS_PER_DISTRICT * UNIONS_PER_UPAZILA,
-    `seed inserted the right number of unions`
+    seeded.unions === seeded.upazilas * UNIONS_PER_UPAZILA,
+    `seed inserted the right number of unions (upazilas × ${UNIONS_PER_UPAZILA})`
   );
   assert(
     seeded.wards === seeded.unions * WARDS_PER_UNION,
@@ -219,14 +226,17 @@ async function run() {
     const dhaka = districts.find((d) => d.name === 'Dhaka');
     assert(dhaka, 'Dhaka district exists');
 
+    const expectedDhakaUpazilas = upazilasForDistrict('Dhaka');
+    assert(expectedDhakaUpazilas.length > 0, '  upazilasForDistrict("Dhaka") returns a list');
+
     const r = await http_(
       'GET',
       `/api/areas?level=UPAZILA&parent=${dhaka.id}`
     );
     assert(r.status === 200, 'GET upazilas of Dhaka → 200');
     assert(
-      r.body.data.areas.length === UPAZILAS_PER_DISTRICT,
-      `  returns ${UPAZILAS_PER_DISTRICT} upazilas for Dhaka`
+      r.body.data.areas.length === expectedDhakaUpazilas.length,
+      `  returns ${expectedDhakaUpazilas.length} real upazilas for Dhaka (${expectedDhakaUpazilas.join(', ')})`
     );
     assert(
       r.body.data.areas.every((a) => a.parentId === dhaka.id),
@@ -236,16 +246,23 @@ async function run() {
       r.body.data.areas.every((a) => a.level === 'UPAZILA'),
       '  every returned level is UPAZILA'
     );
+
+    // Real names must match the mapping exactly (order may differ —
+    // the API sorts by name ascending).
+    const returnedNames = new Set(r.body.data.areas.map((a) => a.name));
+    const expectedNames = new Set(expectedDhakaUpazilas);
+    const missing = [...expectedNames].filter((n) => !returnedNames.has(n));
+    const extra = [...returnedNames].filter((n) => !expectedNames.has(n));
     assert(
-      r.body.data.areas.every((a) => a.name.startsWith('Dhaka ')),
-      '  upazila names follow "Dhaka <Cardinal>" pattern'
+      missing.length === 0 && extra.length === 0,
+      `  upazila names match DISTRICT_UPAZILAS.Dhaka exactly (missing=${JSON.stringify(missing)}, extra=${JSON.stringify(extra)})`
     );
 
     // Same query without `level` — returns all children regardless of level
     const r2 = await http_('GET', `/api/areas?parent=${dhaka.id}`);
     assert(r2.status === 200, 'GET children of Dhaka (no level) → 200');
     assert(
-      r2.body.data.areas.length === UPAZILAS_PER_DISTRICT,
+      r2.body.data.areas.length === expectedDhakaUpazilas.length,
       '  same count regardless of level filter (only children of districts are upazilas)'
     );
   }
@@ -348,6 +365,33 @@ async function run() {
     assert(
       Area.DEFAULT_COUNTRY === 'Bangladesh',
       'Area.DEFAULT_COUNTRY is Bangladesh'
+    );
+    assert(
+      typeof upazilasForDistrict === 'function',
+      'upazilasForDistrict() exported from bangladeshAreas'
+    );
+    assert(
+      DISTRICT_UPAZILAS && typeof DISTRICT_UPAZILAS === 'object',
+      'DISTRICT_UPAZILAS exported as a map'
+    );
+    // Every district in DISTRICTS has at least one upazila in the
+    // mapping (whether real or fallback). No silent gaps.
+    let uncovered = 0;
+    for (const d of DISTRICTS) {
+      if (upazilasForDistrict(d.name).length === 0) uncovered += 1;
+    }
+    assert(
+      uncovered === 0,
+      `every district has at least one upazila (real or fallback); uncovered=${uncovered}`
+    );
+    // Spot-check a couple of high-count districts.
+    assert(
+      upazilasForDistrict('Cumilla').length >= 15,
+      `Cumilla has at least 15 upazilas (got ${upazilasForDistrict('Cumilla').length})`
+    );
+    assert(
+      upazilasForDistrict('Dhaka').length >= 3,
+      `Dhaka has at least 3 upazilas (got ${upazilasForDistrict('Dhaka').length})`
     );
   }
 
