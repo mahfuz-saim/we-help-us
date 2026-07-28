@@ -64,6 +64,14 @@ function formatRelative(iso) {
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
 
+  // We deliberately do NOT fetch /api/users/me on mount. The AuthContext
+  // already hydrates the user once on app load (via GET /auth/me) or
+  // sets it from the login/register response. The profile data only
+  // changes when THIS page mutates it (PATCH /api/users/me or avatar
+  // upload), and we call refreshUser() right after those — so the
+  // AuthContext always holds the canonical state. Calling it again on
+  // mount just creates an extra round-trip with no new information.
+
   // ── Editable form ──────────────────────────────────────────────────────
   const {
     register,

@@ -41,8 +41,11 @@ export function AuthProvider({ children }) {
         return;
       }
       try {
+        // Server response shape: { success: true, data: { user: {...} } }
+        // We need the inner `user` object, not the wrapper — same shape
+        // as login/register use (data?.data?.user).
         const { data } = await api.get('/auth/me');
-        if (!cancelled) setUser(data?.data || null);
+        if (!cancelled) setUser(data?.data?.user || null);
       } catch {
         // Token invalid → clear it. Module 1.3 wires login redirect.
         if (!cancelled) {
@@ -104,12 +107,16 @@ export function AuthProvider({ children }) {
 
   /**
    * Refresh the user object without forcing a re-login. Used after the
-   * user updates their profile (Module 1.4).
+   * user updates their profile (Module 1.4) and also to load fresh data
+   * when the ProfilePage mounts.
    */
   const refreshUser = useCallback(async () => {
     if (!token) return null;
     const { data } = await api.get('/auth/me');
-    const fresh = data?.data || null;
+    // Server response shape: { success: true, data: { user: {...} } }
+    // Extract the inner `user` object so callers receive the same shape
+    // they got from login()/register().
+    const fresh = data?.data?.user || null;
     setUser(fresh);
     return fresh;
   }, [token]);

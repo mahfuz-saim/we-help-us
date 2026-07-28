@@ -276,6 +276,85 @@ async function run() {
       !/placeholder="Profile \(1\.4\)"/.test(appSrc),
       'App.jsx no longer references the Profile placeholder'
     );
+
+    // Regression guards for the "user shape" bug: the server responds
+    // with { success, data: { user: { ... } } } and the client must
+    // extract the inner `user` object on hydration AND on refresh.
+    // If either path stores `data.data` directly, the navbar shows no
+    // name and the profile form is blank on hard reloads.
+    const authSrc = fs.readFileSync(
+      path.join(CLIENT_ROOT, 'src/context/AuthContext.jsx'),
+      'utf8'
+    );
+    assert(
+      /data\?\.data\?\.user/.test(authSrc),
+      'AuthContext extracts data?.data?.user (not just data?.data)'
+    );
+    assert(
+      /api\.get\(['"]\/auth\/me['"]/.test(authSrc),
+      'AuthContext hydrates via GET /auth/me'
+    );
+    assert(
+      /refreshUser/.test(authSrc) &&
+        /api\.get\(['"]\/auth\/me['"]/.test(authSrc),
+      'refreshUser() re-fetches via /auth/me'
+    );
+
+    // Regression guard for the "page makes repeated /users/me calls"
+    // bug. ProfilePage should NOT call /users/me or refreshUser() in
+    // a mount-time useEffect — AuthContext already provides the user
+    // (from hydrate() or login()). Calling refreshUser on every mount
+    // is a useless round-trip because the data only changes after the
+    // user mutates it on this very page.
+    assert(
+      !/api\.get\(['"]\/users\/me['"]/.test(profileSrc),
+      'ProfilePage does NOT call api.get("/users/me")'
+    );
+    // The mount-time useEffect that called refreshUser() was removed.
+    // Split the file into useEffect bodies (matched braces) and check
+    // that none of them contains a refreshUser() call.
+    const useEffectBodies = [];
+    const useEffectRe = /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{/g;
+    let m;
+    while ((m = useEffectRe.exec(profileSrc)) !== null) {
+      const start = m.index + m[0].length;
+      // Walk forward tracking brace depth to find the matching close.
+      let depth = 1;
+      let i = start;
+      while (i < profileSrc.length && depth > 0) {
+        const ch = profileSrc[i];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') depth -= 1;
+        i += 1;
+      }
+      useEffectBodies.push(profileSrc.slice(start, i - 1));
+    }
+    const mountCallsRefresh = useEffectBodies.some((body) =>
+      /refreshUser\s*\(\s*\)/.test(body)
+    );
+    assert(
+      !mountCallsRefresh,
+      'ProfilePage has no useEffect that calls refreshUser() on mount'
+    );
+    // refreshUser() is still invoked after the user mutates the
+    // profile (save + avatar upload) — that path must remain so the
+    // header / meta pick up the new values.
+    assert(
+      /refreshUser\s*\(\s*\)/.test(profileSrc),
+      'ProfilePage still calls refreshUser() after mutations'
+    );
+
+    // Regression guard for "navbar doesn't show name when logged in":
+    // MainLayout must surface user.name (with a fallback) in the
+    // Profile nav link.
+    const layoutSrc = fs.readFileSync(
+      path.join(CLIENT_ROOT, 'src/layouts/MainLayout.jsx'),
+      'utf8'
+    );
+    assert(
+      /user\.name/.test(layoutSrc),
+      'MainLayout renders user.name in the navbar'
+    );
   }
 
   // ── 3. Dev server + mock backend ──────────────────────────────────────

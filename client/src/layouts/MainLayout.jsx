@@ -45,7 +45,10 @@ export default function MainLayout() {
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}
                 >
-                  Profile
+                  <span className="hidden sm:inline">
+                    {user.name || user.email || 'Profile'}
+                  </span>
+                  <span className="sm:hidden">Profile</span>
                 </NavLink>
                 <RoleBadge role={user.role} className="ml-2" />
                 <button
