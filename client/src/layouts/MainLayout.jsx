@@ -5,6 +5,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import RoleBadge from '../components/RoleBadge';
+import NotificationBell from '../components/NotificationBell';
 
 export default function MainLayout() {
   const { user, logout } = useAuth();
@@ -77,6 +78,10 @@ export default function MainLayout() {
                     Moderation
                   </NavLink>
                 )}
+                {/* Notification bell (Module 7.5) — renders only for
+                    authenticated users; the bell is its own dropdown
+                    and does not use NavLink styling. */}
+                <NotificationBell />
                 <NavLink
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}
