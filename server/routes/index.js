@@ -14,6 +14,7 @@ const areaRoutes = require('./area.routes');
 const resourceRoutes = require('./resource.routes');
 const requestRoutes = require('./request.routes');
 const moderatorRoutes = require('./moderator.routes');
+const notificationRoutes = require('./notification.routes');
 
 const router = express.Router();
 
@@ -25,9 +26,9 @@ router.use('/areas', areaRoutes);          // Module 2.1
 router.use('/resources', resourceRoutes);  // Module 3.2
 router.use('/requests', requestRoutes);    // Module 5.2
 router.use('/moderator', moderatorRoutes); // Module 6.1
+router.use('/notifications', notificationRoutes); // Module 7.2
 
 // Feature routers to be mounted in later modules:
-//   router.use('/notifications', require('./notification.routes')); // Module 7.2
 //   router.use('/analytics', require('./analytics.routes')); // Module 8.1
 
 module.exports = router;
