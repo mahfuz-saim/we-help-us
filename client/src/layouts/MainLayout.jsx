@@ -48,6 +48,12 @@ export default function MainLayout() {
                   Resources
                 </NavLink>
                 <NavLink
+                  to="/resources/map"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  Map
+                </NavLink>
+                <NavLink
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}
                 >

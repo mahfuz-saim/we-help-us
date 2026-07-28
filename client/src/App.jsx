@@ -11,6 +11,7 @@ import ResourceRegisterPage from './pages/owner/ResourceRegisterPage.jsx';
 import OwnerDashboardPage from './pages/owner/OwnerDashboardPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
+import MapViewPage from './pages/MapViewPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -34,6 +35,10 @@ export default function App() {
           <Route path="profile" element={<ProfilePage />} />
           {/* Resource search (Module 4.1) — any logged-in role. */}
           <Route path="resources" element={<SearchPage />} />
+          {/* Resource map view (Module 4.3) — registered BEFORE
+              /resources/:id so the literal "map" segment wins the
+              matcher (the :id wildcard would otherwise capture it). */}
+          <Route path="resources/map" element={<MapViewPage />} />
           {/* Resource details (Module 4.2) — any logged-in role. */}
           <Route path="resources/:id" element={<ResourceDetailsPage />} />
         </Route>

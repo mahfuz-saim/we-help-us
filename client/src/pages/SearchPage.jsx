@@ -212,10 +212,20 @@ export default function SearchPage() {
 function Header({ user, hasUserLocation, total }) {
   return (
     <header className="space-y-1">
-      <h1 className="text-xl font-semibold text-slate-900">Find resources</h1>
-      <p className="text-sm text-slate-600">
-        Browse what's available in your community. {total > 0 ? `${total} match your filters.` : ''}
-      </p>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Find resources</h1>
+          <p className="text-sm text-slate-600">
+            Browse what's available in your community. {total > 0 ? `${total} match your filters.` : ''}
+          </p>
+        </div>
+        <Link
+          to="/resources/map"
+          className="text-sm font-medium text-slate-600 hover:text-slate-900"
+        >
+          View on map →
+        </Link>
+      </div>
       {!hasUserLocation && (
         <p className="mt-1 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">
           Add a saved location to your profile to enable the "distance from me"
