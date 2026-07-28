@@ -11,6 +11,7 @@ const authRoutes = require('./auth.routes');
 const adminRoutes = require('./admin.routes');
 const userRoutes = require('./user.routes');
 const areaRoutes = require('./area.routes');
+const resourceRoutes = require('./resource.routes');
 
 const router = express.Router();
 
@@ -19,9 +20,9 @@ router.use('/auth', authRoutes);           // Module 1.2
 router.use('/admin', adminRoutes);         // Module 1.2
 router.use('/users', userRoutes);          // Module 1.4
 router.use('/areas', areaRoutes);          // Module 2.1
+router.use('/resources', resourceRoutes);  // Module 3.2
 
 // Feature routers to be mounted in later modules:
-//   router.use('/resources', require('./resource.routes'));  // Module 3.2
 //   router.use('/requests', require('./request.routes'));    // Module 5.2
 //   router.use('/moderator', require('./moderator.routes')); // Module 6.1
 //   router.use('/notifications', require('./notification.routes')); // Module 7.2
