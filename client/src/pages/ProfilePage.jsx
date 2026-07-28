@@ -1,13 +1,13 @@
 /**
- * ProfilePage — self-service profile (Module 1.4).
+ * ProfilePage — self-service profile (Module 1.4 + Module 2.2).
  *
  * Two visual sections:
  *   1. Account info (read-only) — avatar, name, role badge, joined date,
  *      last login. Hydrated from AuthContext on mount.
  *   2. Editable info — a react-hook-form with name, email, phone,
- *      and basic location (two number inputs for [lng, lat]).
- *      Submitting calls PATCH /api/users/me and refreshes the
- *      AuthContext user.
+ *      and location (AreaSelector — the three-mode picker from
+ *      Module 2.2 that drives areaId + lng/lat). Submitting calls
+ *      PATCH /api/users/me and refreshes the AuthContext user.
  *
  * Plus an avatar upload form that POSTs a multipart avatar to
  * /api/users/me/avatar. Cloudinary may be unconfigured on the server;
@@ -22,15 +22,18 @@
  *     users (ProtectedRoute wraps it in App.jsx).
  *   - Upload limits: the file picker uses `accept` + the same constants
  *     exported from utils/constants — 5 MB / image-only.
+ *   - Privacy: AreaSelector emits areaId (deepest node) + lng/lat. We
+ *     NEVER read owner contact info from the area tree.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import RoleBadge from '../components/RoleBadge';
+import AreaSelector from '../components/AreaSelector';
 import { extractFormError } from '../utils/formErrors';
 import { UPLOAD_LIMITS } from '../utils/constants';
 
@@ -75,10 +78,10 @@ export default function ProfilePage() {
   // ── Editable form ──────────────────────────────────────────────────────
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
-    watch,
     formState: { errors, isDirty },
   } = useForm({
     mode: 'onTouched',
@@ -94,8 +97,15 @@ export default function ProfilePage() {
       name: user.name || '',
       email: user.email || '',
       phone: user.phone || '',
-      lng: Array.isArray(coords) ? coords[0] : '',
-      lat: Array.isArray(coords) ? coords[1] : '',
+      // The AreaSelector is bound to `area` via Controller below.
+      // On mount we seed its initial areaId/lng/lat/areaLabel from
+      // the existing user record.
+      area: {
+        areaId: user.areaId || null,
+        lng: Array.isArray(coords) ? coords[0] : null,
+        lat: Array.isArray(coords) ? coords[1] : null,
+        areaLabel: null, // selector re-derives the chain itself
+      },
     });
   }, [user, reset]);
 
@@ -109,17 +119,15 @@ export default function ProfilePage() {
       email: values.email.trim().toLowerCase(),
       phone: values.phone.trim(),
     };
-    const lng = parseFloatOrNull(values.lng);
-    const lat = parseFloatOrNull(values.lat);
-    if (lng !== null || lat !== null) {
-      // Either both must be present or neither (so the controller
-      // doesn't persist a half-formed Point). If only one is filled,
-      // surface a client-side error.
-      if (lng === null || lat === null) {
-        setError('lng', { type: 'manual', message: 'Both lng and lat are required.' });
-        return;
-      }
-      payload.location = { type: 'Point', coordinates: [lng, lat] };
+
+    // AreaSelector emits {areaId, lng, lat, areaLabel}. Translate it
+    // into the server-expected shapes (areaId + GeoJSON Point).
+    const sel = values.area || {};
+    if (sel.areaId) {
+      payload.areaId = sel.areaId;
+    }
+    if (sel.lng != null && sel.lat != null) {
+      payload.location = { type: 'Point', coordinates: [sel.lng, sel.lat] };
     }
 
     setSaving(true);
@@ -221,9 +229,6 @@ export default function ProfilePage() {
     );
   }
 
-  const watchLng = watch('lng');
-  const watchLat = watch('lat');
-
   return (
     <div className="space-y-6">
       <header className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -323,67 +328,28 @@ export default function ProfilePage() {
 
           <fieldset>
             <legend className="block text-sm font-medium text-slate-700">
-              Location (optional)
+              Location
             </legend>
             <p className="mt-1 text-xs text-slate-500">
-              Longitude and latitude (e.g. <code>90.41</code>, <code>23.79</code> for
-              Dhaka). The interactive area selector lands in Module 2.2.
+              Pick where you live — by district hierarchy, by address search,
+              or by dropping a pin on the map. All three are optional.
             </p>
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              <Field
-                label="Longitude"
-                htmlFor="lng"
-                error={errors.lng?.message}
-                inline
-              >
-                <input
-                  id="lng"
-                  type="number"
-                  step="any"
-                  placeholder="-180 to 180"
-                  aria-invalid={Boolean(errors.lng)}
-                  className={inputClass(Boolean(errors.lng))}
-                  {...register('lng', {
-                    validate: (val) => {
-                      if (val === '' || val === undefined) return true;
-                      const n = Number(val);
-                      if (!Number.isFinite(n)) return 'Must be a number';
-                      if (n < -180 || n > 180) return 'Must be between -180 and 180';
-                      return true;
-                    },
-                  })}
-                />
-              </Field>
-              <Field
-                label="Latitude"
-                htmlFor="lat"
-                error={errors.lat?.message}
-                inline
-              >
-                <input
-                  id="lat"
-                  type="number"
-                  step="any"
-                  placeholder="-90 to 90"
-                  aria-invalid={Boolean(errors.lat)}
-                  className={inputClass(Boolean(errors.lat))}
-                  {...register('lat', {
-                    validate: (val) => {
-                      if (val === '' || val === undefined) return true;
-                      const n = Number(val);
-                      if (!Number.isFinite(n)) return 'Must be a number';
-                      if (n < -90 || n > 90) return 'Must be between -90 and 90';
-                      return true;
-                    },
-                  })}
-                />
-              </Field>
+            <div className="mt-2">
+              <Controller
+                control={control}
+                name="area"
+                render={({ field }) => (
+                  <AreaSelector
+                    initialAreaId={field.value?.areaId || null}
+                    initialLng={field.value?.lng ?? null}
+                    initialLat={field.value?.lat ?? null}
+                    initialAreaLabel={field.value?.areaLabel || null}
+                    onChange={(next) => field.onChange(next)}
+                    disabled={saving}
+                  />
+                )}
+              />
             </div>
-            {(watchLng || watchLat) && lngLatMismatch(watchLng, watchLat) && (
-              <p className="mt-1 text-xs text-alert-700">
-                Both longitude and latitude must be filled, or leave both blank.
-              </p>
-            )}
           </fieldset>
 
           <div className="flex items-center gap-3 pt-2">
@@ -468,19 +434,12 @@ export default function ProfilePage() {
 // ── Helpers / sub-components ────────────────────────────────────────────────
 
 function blankDefaults() {
-  return { name: '', email: '', phone: '', lng: '', lat: '' };
-}
-
-function parseFloatOrNull(v) {
-  if (v === '' || v === undefined || v === null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function lngLatMismatch(lng, lat) {
-  const one = lng !== '' && lng !== undefined;
-  const other = lat !== '' && lat !== undefined;
-  return one !== other;
+  return {
+    name: '',
+    email: '',
+    phone: '',
+    area: { areaId: null, lng: null, lat: null, areaLabel: null },
+  };
 }
 
 function AvatarPreview({ src, name, size = 'md' }) {

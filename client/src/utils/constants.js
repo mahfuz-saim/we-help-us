@@ -60,3 +60,18 @@ export const TOKEN_STORAGE_KEY = 'whu_token';
 
 // Default pagination size.
 export const DEFAULT_PAGE_SIZE = 20;
+
+// Administrative hierarchy — must match server-side Area model (Module 2.1).
+// Ordered top → bottom so the cascading dropdown iterates in order.
+export const AREA_LEVELS = Object.freeze([
+  { value: 'DISTRICT', label: 'District' },
+  { value: 'UPAZILA',  label: 'Upazila' },
+  { value: 'UNION',    label: 'Union' },
+  { value: 'WARD',     label: 'Ward' },
+  { value: 'VILLAGE',  label: 'Village' },
+]);
+
+// Default map view — centered on Dhaka, Bangladesh. The OpenStreetMap
+// default tiles render at zoom 13 for ~city-block detail.
+export const DEFAULT_MAP_CENTER = Object.freeze({ lat: 23.8103, lng: 90.4125 });
+export const DEFAULT_MAP_ZOOM = 12;
