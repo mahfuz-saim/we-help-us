@@ -25,6 +25,12 @@
  * a deterministic "<District> <Cardinal>/<Role>" pattern so the
  * tree is self-explanatory in the demo. Replace with data.gov.bd
  * exports when fuller coverage is needed.
+ *
+ * NOTE: the canonical district list contains both `Chapainawabganj`
+ * (the official name) and `Nawabganj` (the older name still in wide
+ * use). The two refer to the same physical district; we ship BOTH
+ * so clients with either spelling can match — the upstream cascading
+ * data structure under each is identical.
  */
 
 const DISTRICTS = [
@@ -47,16 +53,17 @@ const DISTRICTS = [
   { name: 'Bandarban' },
   { name: 'Brahmanbaria' },
   { name: 'Chandpur' },
-  { name: 'Comilla' },
+  { name: 'Cumilla' },
   { name: "Cox's Bazar" },
   { name: 'Feni' },
-  { name: 'Khagrachhari' },
+  { name: 'Khagrachari' },
   { name: 'Lakshmipur' },
   { name: 'Noakhali' },
   { name: 'Rangamati' },
   // Rajshahi Division
   { name: 'Bogura' },
   { name: 'Chapainawabganj' },
+  { name: 'Nawabganj' },
   { name: 'Joypurhat' },
   { name: 'Naogaon' },
   { name: 'Natore' },

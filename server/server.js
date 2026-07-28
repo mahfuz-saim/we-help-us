@@ -19,6 +19,7 @@ const { createApp } = require("./app");
 const { configureCloudinary } = require("./config/cloudinary");
 const { connectDB, isConnected, disconnectDB } = require("./config/db");
 const { initSocket } = require("./sockets");
+const { seedAreasIfEmpty } = require("./utils/seedAreas");
 
 const PORT = Number(process.env.PORT) || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -39,6 +40,28 @@ async function main() {
     if (isConnected()) {
       // eslint-disable-next-line no-console
       console.log("[db] MongoDB connected");
+
+      // Auto-seed the Area collection on first boot so the cascading
+      // dropdown (Module 2.2) and resource search (Phase 4) always have
+      // a working hierarchy without a manual `node scripts/seed-areas.js`
+      // step. Idempotent: if any Area docs already exist, this is a no-op.
+      // Can be bypassed with `SKIP_AREA_AUTOSEED=1` (useful for tests).
+      if (process.env.SKIP_AREA_AUTOSEED !== "1") {
+        try {
+          const result = await seedAreasIfEmpty();
+          if (result) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[seed] areas seeded (${result.districts} districts, ` +
+                `${result.upazilas} upazilas, ${result.unions} unions, ` +
+                `${result.wards} wards, ${result.villages} villages)`
+            );
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(`[seed] area auto-seed skipped: ${err.message}`);
+        }
+      }
     }
   } catch (err) {
     if (isProd) {

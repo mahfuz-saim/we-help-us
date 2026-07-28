@@ -3,20 +3,26 @@
  *
  * Shipped in two pieces so the same logic powers:
  *   - the CLI entry `scripts/seed-areas.js` (operational seeding),
- *   - the smoke test (in-memory seeding via `seedAreas()`).
+ *   - the smoke test (in-memory seeding via `seedAreas()`),
+ *   - server auto-seed on first boot (`seedAreasIfEmpty()`).
  *
- * The function is idempotent: if called twice, it wipes the existing
- * Area collection first and reinserts. Use with care — this is a
- * destructive operation, by design: a partial seed leaves the
- * cascade in a half-broken state.
+ * The `seedAreas()` function is idempotent and DESTRUCTIVE: it wipes
+ * the existing Area collection first and reinserts. Use with care —
+ * a partial seed leaves the cascade in a half-broken state.
+ *
+ * The `seedAreasIfEmpty()` helper is the safe sibling: it only
+ * inserts when the Area collection is empty, so server boot can call
+ * it without risking data loss in deployments where an operator
+ * has hand-curated the hierarchy.
  *
  * Hierarchy that this function materialises:
  *   District → Upazila → Union → Ward → Village
  *
- * Districts come from `utils/bangladeshAreas.js` (all 64 real names).
- * Lower levels are generated deterministically from each district
- * name (e.g. `<District> North → East → Ward 1 → A`, etc.). Boundary
- * polygons are intentionally omitted — Module 4.3 owns them.
+ * Districts come from `utils/bangladeshAreas.js` (all real Bangladesh
+ * district names). Lower levels are generated deterministically from
+ * each district name (e.g. `<District> North → East → Ward 1 → A`,
+ * etc.). Boundary polygons are intentionally omitted — Module 4.3
+ * owns them.
  */
 
 const mongoose = require('mongoose');
@@ -158,4 +164,39 @@ async function seedAreas(opts = {}) {
   };
 }
 
-module.exports = { seedAreas };
+/**
+ * Auto-seed helper for server boot: only inserts the Bangladesh
+ * hierarchy if the Area collection is currently empty.
+ *
+ * Why this exists: the cascading dropdown (Module 2.2) and the
+ * resource search (Phase 4) both depend on the Area tree being
+ * populated. Forcing every operator to run
+ * `node scripts/seed-areas.js` manually is a footgun — most users
+ * hit `count: 0` on the first GET /api/areas request and have no
+ * idea why. Calling `seedAreasIfEmpty()` on boot removes that step
+ * at the cost of one extra collection-count on startup.
+ *
+ * Behavior:
+ *   - If the Area collection already has any docs → no-op (return null).
+ *     Operators who have hand-curated the hierarchy keep their data.
+ *   - If the Area collection is empty → call `seedAreas({skipClear:true})`
+ *     and return the resulting counts.
+ *
+ * @param {object} [opts]
+ * @param {object} [opts.connection=mongoose.connection]
+ * @returns {Promise<null | {districts, upazilas, unions, wards, villages, total}>}
+ */
+async function seedAreasIfEmpty(opts = {}) {
+  const { connection = mongoose.connection } = opts;
+  if (connection.readyState !== 1) {
+    throw new Error('seedAreasIfEmpty: MongoDB is not connected');
+  }
+  const count = await connection.collection('areas').countDocuments({});
+  if (count > 0) {
+    // Already populated — leave it alone.
+    return null;
+  }
+  return seedAreas({ skipClear: true, connection });
+}
+
+module.exports = { seedAreas, seedAreasIfEmpty };

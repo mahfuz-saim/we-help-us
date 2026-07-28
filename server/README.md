@@ -81,11 +81,19 @@ Response shape:
 
 ### Seeding the Bangladesh hierarchy
 
-After the database is reachable, populate the `areas` collection:
+The server auto-seeds the `areas` collection on first boot when it's
+empty (see `server.js` → `seedAreasIfEmpty()`). You normally don't
+need to do anything — just start the server and the cascading
+dropdown in the profile page will have data.
+
+To force a fresh seed (e.g. after editing the district list), run:
 
 ```bash
 node scripts/seed-areas.js
 ```
+
+To disable auto-seed in a specific environment, set
+`SKIP_AREA_AUTOSEED=1` before starting the server.
 
 The script is destructive: it wipes the `areas` collection and re-inserts
 the full hierarchy (64 districts + 3 upazilas per district + 2 unions per
