@@ -14,6 +14,7 @@ import SearchPage from './pages/SearchPage.jsx';
 import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
 import VolunteerDashboardPage from './pages/volunteer/VolunteerDashboardPage.jsx';
+import ModeratorDashboardPage from './pages/moderator/ModeratorDashboardPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -74,7 +75,7 @@ export default function App() {
         <Route element={<ProtectedRoute roles={['MODERATOR', 'ADMIN']} />}>
           <Route
             path="moderator"
-            element={<HomePage placeholder="Moderator Dashboard (5.5)" />}
+            element={<ModeratorDashboardPage />}
           />
         </Route>
 

@@ -69,6 +69,14 @@ export default function MainLayout() {
                     Incoming
                   </NavLink>
                 )}
+                {(user.role === 'MODERATOR' || user.role === 'ADMIN') && (
+                  <NavLink
+                    to="/moderator"
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    Moderation
+                  </NavLink>
+                )}
                 <NavLink
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}
