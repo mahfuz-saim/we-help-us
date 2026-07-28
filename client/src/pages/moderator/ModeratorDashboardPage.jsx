@@ -1,5 +1,5 @@
 /**
- * ModeratorDashboardPage — Module 5.5.
+ * ModeratorDashboardPage — Modules 5.5 + 6.3.
  *
  * The MODERATOR's surface for area-scoped request oversight. The
  * mirror of Module 5.4's OwnerRequestsPage on the oversight side:
@@ -44,6 +44,21 @@
  *      PrivacyFooter on this page explains that to the user so the
  *      design intent is legible.
  *
+ * Module 6.3 (Emergency Mode) layers on top of 5.5:
+ *   - EmergencyModeBanner — renders at the top of the dashboard
+ *     when the area's emergency flag is active. Reads the
+ *     `activatedBy` field (public User shape from the controller)
+ *     and surfaces the actor's name + activation time. The banner
+ *     is the dashboard's "response-focused view" signal — the
+ *     status filter still defaults to REQUESTED when active, so
+ *     the queue is the priority surface.
+ *   - EmergencyModeToggleCard — the activate / deactivate affordance.
+ *     Gated on the moderator having an areaId. Click activates a
+ *     confirm dialog with an optional note (≤1000 chars client-side;
+ *     same cap as the moderator-note convention). The card also
+ *     surfaces "Activated by <name> at <time>" when active, so
+ *     another moderator opening the dashboard knows who flipped it.
+ *
  * Privacy boundary (KEY DESIGN REMINDER):
  *   - The page source NEVER calls /users/:id or /auth/me. There is
  *     no volunteer / owner detail card, no mailto: link, no tel:
@@ -54,8 +69,15 @@
  *     returns the updated request without the contact block
  *     (status is REJECTED after the call, so the helper still
  *     gates).
- *   - The only outbound traffic the page generates is GET /requests
- *     (list) + PATCH /requests/:id/reject (mutation).
+ *   - The only outbound traffic the page generates is:
+ *       GET    /requests (list)
+ *       PATCH  /requests/:id/reject (mutation)
+ *       GET    /moderator/emergency-mode (state read)
+ *       PATCH  /moderator/emergency-mode (toggle)
+ *     None of those return email / phone / password for the
+ *     activated-by user (the controller uses `toSafeObject()` on
+ *     that field, which strips password and never includes email
+ *     or phone).
  */
 
 import { useEffect, useState } from 'react';
@@ -68,6 +90,10 @@ import {
   useModeratorRequests,
   useRejectModeratorRequest,
 } from '../../hooks/useModeratorRequests';
+import {
+  useEmergencyMode,
+  useSetEmergencyMode,
+} from '../../hooks/useEmergencyMode';
 import {
   getCategoryEmoji,
   getCategoryLabel,
@@ -117,6 +143,10 @@ export default function ModeratorDashboardPage() {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState(null);
   const [dialogRequestId, setDialogRequestId] = useState(null);
+  // Module 6.3 — emergency-mode confirm dialog. Tracks the
+  // requested new state so the dialog can render the right
+  // headline ("Activate" vs "Deactivate").
+  const [emergencyDialog, setEmergencyDialog] = useState(null);
 
   // The list query — area-scoped server-side for MODERATOR callers.
   const list = useModeratorRequests({
@@ -130,6 +160,12 @@ export default function ModeratorDashboardPage() {
   const pendingCount = useModeratorRequestCount({
     enabled: Boolean(user),
   });
+
+  // Module 6.3 — emergency-mode state read + toggle.
+  const emergencyMode = useEmergencyMode({
+    enabled: Boolean(user && user.areaId),
+  });
+  const setEmergencyMode = useSetEmergencyMode();
 
   const reject = useRejectModeratorRequest();
 
@@ -148,6 +184,22 @@ export default function ModeratorDashboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reject.isSuccess]);
+
+  useEffect(() => {
+    if (setEmergencyMode.isSuccess) {
+      const wasActive = Boolean(
+        setEmergencyMode.variables && setEmergencyMode.variables.isActive
+      );
+      toast.success(
+        wasActive
+          ? 'Emergency mode activated. Queue is now response-focused.'
+          : 'Emergency mode deactivated.'
+      );
+      setEmergencyMode.reset?.();
+      setEmergencyDialog(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setEmergencyMode.isSuccess]);
 
   function handleOpenReject(requestId) {
     setDialogRequestId(requestId);
@@ -168,6 +220,30 @@ export default function ModeratorDashboardPage() {
     }
   }
 
+  function handleOpenEmergencyToggle() {
+    const isActive = Boolean(
+      emergencyMode.data && emergencyMode.data.isActive
+    );
+    setEmergencyDialog({ isActive: !isActive });
+  }
+
+  function handleCloseEmergencyToggle() {
+    if (!setEmergencyMode.isPending) setEmergencyDialog(null);
+  }
+
+  async function handleSubmitEmergencyToggle({ isActive, note }) {
+    try {
+      await setEmergencyMode.mutateAsync({
+        isActive,
+        note: note || undefined,
+      });
+    } catch (err) {
+      toast.error(
+        (err && err.message) || 'Could not update emergency mode.'
+      );
+    }
+  }
+
   const requests = list.data?.requests || [];
   const total = list.data?.pagination?.total || 0;
   const activeId = dialogRequestId;
@@ -178,6 +254,20 @@ export default function ModeratorDashboardPage() {
         areaId={user && user.areaId}
         pendingCount={pendingCount.data && pendingCount.data.total}
         pendingCountLoading={pendingCount.isLoading}
+      />
+
+      <EmergencyModeBanner
+        data={emergencyMode.data}
+        loading={emergencyMode.isLoading}
+        onToggle={handleOpenEmergencyToggle}
+      />
+
+      <EmergencyModeToggleCard
+        data={emergencyMode.data}
+        loading={emergencyMode.isLoading}
+        error={emergencyMode.error}
+        hasArea={Boolean(user && user.areaId)}
+        onToggle={handleOpenEmergencyToggle}
       />
 
       <FilterBar
@@ -226,6 +316,15 @@ export default function ModeratorDashboardPage() {
           onCancel={handleCloseReject}
           onSubmit={handleSubmitReject}
           pending={reject.isPending}
+        />
+      )}
+
+      {emergencyDialog && (
+        <EmergencyModeDialog
+          targetState={emergencyDialog.isActive}
+          onCancel={handleCloseEmergencyToggle}
+          onSubmit={handleSubmitEmergencyToggle}
+          pending={setEmergencyMode.isPending}
         />
       )}
 
@@ -655,6 +754,276 @@ function PrivacyFooter() {
       resource is collected. This keeps moderator scope focused on
       triage, not outreach.
     </p>
+  );
+}
+
+// ── Module 6.3 — Emergency Mode components ─────────────────────────────────
+
+/**
+ * Renders a high-visibility alert banner when the moderator's area
+ * has emergency mode active. The banner is the dashboard's
+ * "response-focused view" signal — it duplicates the toggle state
+ * to the top of the page so a moderator walking in mid-shift sees
+ * the active flag immediately, even if the toggle card is below
+ * the fold.
+ *
+ * Reads `activatedBy.name` (the public User shape) for the "Activated
+ * by" line. Falls back to a generic "Activated" line when the actor's
+ * User doc was deleted (the controller returns null for that case).
+ *
+ * The "Deactivate" button is a shortcut to the toggle dialog — same
+ * path as the toggle card, so the confirm flow is consistent.
+ */
+function EmergencyModeBanner({ data, loading, onToggle }) {
+  if (loading || !data || !data.isActive) return null;
+  const activatedByName =
+    data.activatedBy && data.activatedBy.name ? data.activatedBy.name : null;
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-300 bg-alert-50 px-4 py-3 text-sm text-alert-900"
+    >
+      <div className="flex items-center gap-2">
+        <span aria-hidden className="text-lg">🚨</span>
+        <div>
+          <p className="font-semibold">
+            Emergency mode active
+            <span className="ml-2 rounded-full bg-alert-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              Response mode
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-alert-800">
+            {activatedByName
+              ? `Activated by ${activatedByName}`
+              : 'Activated'}{' '}
+            {data.activatedAt
+              ? `at ${new Date(data.activatedAt).toLocaleString()}`
+              : ''}
+            . The queue below is the priority surface for this area.
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="rounded-md border border-alert-700 bg-white px-3 py-1.5 text-xs font-semibold text-alert-700 hover:bg-alert-100"
+      >
+        Deactivate
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The toggle card. Three states:
+ *   - Loading: skeleton row.
+ *   - Active: green outline, "Active" label, "Deactivate" button.
+ *   - Inactive: gray outline, "Inactive" label, "Activate" button.
+ *
+ * Gated on `hasArea`: a moderator with no areaId sees a muted hint
+ * instead of the toggle (the controller will 403 the toggle anyway).
+ *
+ * The "Activated by" caption shows the current state's actor + time
+ * when active, and a muted "Last activated …" caption when inactive
+ * (so the actor of a past activation is still legible).
+ */
+function EmergencyModeToggleCard({ data, loading, error, hasArea, onToggle }) {
+  if (!hasArea) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+        <p className="font-medium text-slate-700">Emergency mode</p>
+        <p className="mt-1">
+          Assign an area to your moderator account to enable the
+          emergency-mode toggle. Admin manages area assignments.
+        </p>
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <span
+          aria-hidden
+          className="block h-4 w-40 animate-pulse rounded bg-slate-200"
+        />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-lg border border-caution-300 bg-caution-50 px-4 py-3 text-xs text-caution-800">
+        <p className="font-medium">Emergency mode</p>
+        <p className="mt-1">
+          Could not load emergency-mode state (
+          {(error && error.message) || 'unknown error'}). The toggle
+          is disabled until the state is readable.
+        </p>
+      </div>
+    );
+  }
+  const isActive = Boolean(data && data.isActive);
+  const activatedByName =
+    data && data.activatedBy && data.activatedBy.name
+      ? data.activatedBy.name
+      : null;
+  const activatedAt = data && data.activatedAt;
+  return (
+    <div
+      className={
+        'flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 shadow-sm ' +
+        (isActive
+          ? 'border-alert-300 bg-alert-50'
+          : 'border-slate-200 bg-white')
+      }
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-slate-900">
+            Emergency mode
+          </p>
+          <span
+            className={
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ' +
+              (isActive
+                ? 'bg-alert-700 text-white'
+                : 'bg-slate-200 text-slate-700')
+            }
+          >
+            {isActive ? 'Active' : 'Inactive'}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-600">
+          {isActive
+            ? activeStateDescription(activatedByName, activatedAt)
+            : inactiveStateDescription(activatedByName, activatedAt)}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={
+          'rounded-md px-3 py-1.5 text-xs font-semibold ' +
+          (isActive
+            ? 'border border-alert-700 bg-white text-alert-700 hover:bg-alert-100'
+            : 'bg-alert-700 text-white hover:bg-alert-800')
+        }
+      >
+        {isActive ? 'Deactivate' : 'Activate'}
+      </button>
+    </div>
+  );
+}
+
+function activeStateDescription(name, at) {
+  if (name && at) {
+    return `Activated by ${name} at ${new Date(at).toLocaleString()}. The queue is the priority surface.`;
+  }
+  if (name) {
+    return `Activated by ${name}. The queue is the priority surface.`;
+  }
+  return 'Active. The queue below is the priority surface for this area.';
+}
+
+function inactiveStateDescription(name, at) {
+  if (name && at) {
+    return `Last activated by ${name} at ${new Date(at).toLocaleString()}. Activate to switch the dashboard to response mode.`;
+  }
+  return 'Activate to switch the dashboard to response mode for an in-flight crisis.';
+}
+
+/**
+ * Modal dialog for the activate / deactivate confirmation. Mirrors
+ * the ModeratorNoteDialog flow: a simple two-button modal with an
+ * optional note textarea capped at MAX_NOTE_CHARS. The note is
+ * accepted-and-forwarded (the controller does NOT persist it yet —
+ * it's there for forward-compat with the future audit-log work).
+ */
+function EmergencyModeDialog({ targetState, onCancel, onSubmit, pending }) {
+  const [note, setNote] = useState('');
+  const activating = targetState === true;
+  const charsLeft = MAX_NOTE_CHARS - note.length;
+  const noteInvalid = note.length > MAX_NOTE_CHARS;
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    if (noteInvalid) return;
+    onSubmit({ isActive: targetState, note: note.trim() || undefined });
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="emergency-mode-dialog-title"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4"
+    >
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+      >
+        <h2
+          id="emergency-mode-dialog-title"
+          className="text-lg font-semibold text-slate-900"
+        >
+          {activating ? 'Activate emergency mode' : 'Deactivate emergency mode'}
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">
+          {activating
+            ? 'The dashboard will switch to response mode. The pending-requests queue becomes the priority surface for this area. Other areas are unaffected.'
+            : 'The dashboard will return to the normal oversight view. The pending-requests queue is no longer priority-surfaced.'}
+        </p>
+        <label className="mt-4 block text-xs font-medium text-slate-700">
+          Note (optional)
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={3}
+          placeholder={
+            activating
+              ? 'e.g. Flash flood in the eastern unions — activating for 24 hours.'
+              : 'e.g. Crisis resolved; returning to normal oversight.'
+          }
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alert-500 focus:outline-none focus:ring-1 focus:ring-alert-500"
+        />
+        <p
+          className={
+            'mt-1 text-xs ' +
+            (noteInvalid ? 'text-alert-700' : 'text-slate-500')
+          }
+        >
+          {charsLeft} character{charsLeft === 1 ? '' : 's'} left
+        </p>
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={pending}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={pending || noteInvalid}
+            className={
+              'rounded-md px-3 py-1.5 text-sm font-semibold text-white ' +
+              (activating
+                ? 'bg-alert-700 hover:bg-alert-800 disabled:bg-alert-300'
+                : 'bg-slate-700 hover:bg-slate-800 disabled:bg-slate-400')
+            }
+          >
+            {pending
+              ? activating
+                ? 'Activating…'
+                : 'Deactivating…'
+              : activating
+                ? 'Activate'
+                : 'Deactivate'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

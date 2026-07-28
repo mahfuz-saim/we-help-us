@@ -1,5 +1,5 @@
 /**
- * Moderator routes — Modules 6.1 + 6.2.
+ * Moderator routes — Modules 6.1 + 6.2 + 6.3.
  *
  * Mounted under `/api/moderator` from routes/index.js.
  *
@@ -20,6 +20,7 @@ const {
   ownersQuerySchema,
   verifyVolunteerParamsSchema,
   verifyVolunteerBodySchema,
+  setEmergencyModeBodySchema,
 } = require('../validators/moderator.validators');
 const moderatorCtrl = require('../controllers/moderator.controller');
 
@@ -65,6 +66,22 @@ router.post(
   validate(verifyVolunteerParamsSchema, 'params'),
   validate(verifyVolunteerBodySchema),
   asyncHandler(moderatorCtrl.verifyVolunteer)
+);
+
+// GET /api/moderator/emergency-mode — Module 6.3.
+// Read-only. No body / query params. Returns the area's current
+// emergency-mode state.
+router.get(
+  '/emergency-mode',
+  asyncHandler(moderatorCtrl.getEmergencyMode)
+);
+
+// PATCH /api/moderator/emergency-mode — Module 6.3.
+// Body: { isActive: boolean, note?: string }. Strict validator.
+router.patch(
+  '/emergency-mode',
+  validate(setEmergencyModeBodySchema),
+  asyncHandler(moderatorCtrl.setEmergencyMode)
 );
 
 module.exports = router;

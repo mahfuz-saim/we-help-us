@@ -1,10 +1,11 @@
 /**
- * Zod validators for the moderator APIs (Modules 6.1 + 6.2).
+ * Zod validators for the moderator APIs (Modules 6.1 + 6.2 + 6.3).
  *
  * Module 6.1 ships the four read-only list endpoints; Module 6.2 adds
- * the volunteer-verification action endpoint. All endpoint scope is
- * derived from the authenticated moderator — no area, role, or
- * caller-supplied identity may be passed via the query / body.
+ * the volunteer-verification action endpoint; Module 6.3 adds the
+ * emergency-mode toggle. All endpoint scope is derived from the
+ * authenticated moderator — no area, role, or caller-supplied
+ * identity may be passed via the query / body.
  *
  * Privacy (KEY DESIGN REMINDER): the verification endpoint NEVER
  * carries or accepts the volunteer's `email` / `phone` / `password`.
@@ -14,6 +15,12 @@
  * via the private `publicUserDirectory()` helper (same one the
  * directory endpoints use), which strips `password` AND never
  * includes `email` / `phone`.
+ *
+ * Module 6.3's emergency-mode endpoint accepts only an `isActive`
+ * boolean + an optional `note` (≤1000 chars, same cap as the
+ * moderator-note convention). The areaId is NOT passed by the
+ * caller — it's resolved from `req.user.areaId` server-side. Admin
+ * is exempt from the areaId requirement (admin is global).
  */
 
 const { z } = require('zod');
@@ -98,6 +105,26 @@ const verifyVolunteerBodySchema = z
   .strict()
   .optional();
 
+// PATCH /api/moderator/emergency-mode — Module 6.3.
+// Body is the new state + an optional note. The areaId is NOT
+// passed by the caller — the controller resolves it from
+// `req.user.areaId` (admin is exempt from the area check).
+// Strict mode so unknown body keys are a 400 (regression-locked by
+// the 6.1/6.2 contract).
+const setEmergencyModeBodySchema = z
+  .object({
+    isActive: z.boolean({
+      message: 'isActive must be a boolean',
+    }),
+    note: z
+      .string()
+      .trim()
+      .max(1000, 'note must be at most 1000 characters')
+      .optional()
+      .nullable(),
+  })
+  .strict();
+
 module.exports = {
   areaResourcesQuerySchema,
   pendingRequestsQuerySchema,
@@ -105,4 +132,5 @@ module.exports = {
   ownersQuerySchema,
   verifyVolunteerParamsSchema,
   verifyVolunteerBodySchema,
+  setEmergencyModeBodySchema,
 };

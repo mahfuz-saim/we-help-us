@@ -6,6 +6,18 @@
  *   - Seed Bangladesh administrative hierarchy
  *   - GET /api/areas (cascading dropdown)
  *
+ * Module 6.3 (Emergency Mode) adds a per-area emergency flag:
+ *   - emergencyMode.isActive      — boolean, true while the area is
+ *     in crisis-activation mode
+ *   - emergencyMode.activatedAt   — Date, when the flag was last
+ *     flipped to true (null while inactive)
+ *   - emergencyMode.activatedBy   — ObjectId ref User, the moderator
+ *     (or admin) who flipped the flag on
+ *
+ * The flag is intentionally per-area (NOT global). When a moderator
+ * toggles emergency mode for their area, the dashboard switches to a
+ * response-focused view for that area; other areas are unaffected.
+ *
  * Design choice (cascading-friendly):
  *   Each Area document represents ONE node in the hierarchy. The
  *   `level` enum records where it sits; `parentId` points to the
@@ -28,7 +40,9 @@
  *     2dsphere index. Documents without a boundary are skipped by the
  *     index — same pattern User.js uses for `location`.
  *   - **Privacy**: areas are reference data, not user data. No PII
- *     lives on this collection.
+ *     lives on this collection. The `emergencyMode.activatedBy` field
+ *     references a User doc; the controller exposes it as
+ *     `toSafeObject()` (strips password; never email/phone).
  *   - **Cascading**: indexes on `parentId` and `(level, parentId)`
  *     keep the dropdown queries cheap even with 80k villages seeded.
  */
@@ -99,6 +113,36 @@ const areaSchema = new mongoose.Schema(
         type: [[[Number]]], // [[lng, lat], [lng, lat], ...] (rings)
       },
     },
+
+    emergencyMode: {
+      // Module 6.3 — per-area emergency-activation flag. Subdocument
+      // (rather than separate fields) so the inactive state is a
+      // single `isActive: false` default and the activatedAt /
+      // activatedBy fields are atomically cleared together when the
+      // moderator toggles back to inactive.
+      //
+      // The flag is per-area, not global. A moderator in area A
+      // activating emergency mode leaves area B's flag untouched.
+      isActive: {
+        type: Boolean,
+        default: false,
+      },
+      activatedAt: {
+        // Date the flag was last flipped to true. null while inactive
+        // (so the dashboard can show "Activated never" / "Last
+        // activated <date>" without a sentinel).
+        type: Date,
+        default: null,
+      },
+      activatedBy: {
+        // ObjectId ref User (the moderator or admin who flipped the
+        // flag). The controller surfaces this as the user's
+        // `toSafeObject()` — see privacy stance in the controller.
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+      },
+    },
   },
   {
     timestamps: true,
@@ -146,6 +190,19 @@ areaSchema.index(
 areaSchema.index(
   { boundary: '2dsphere' },
   { name: 'geo_boundary', sparse: true }
+);
+
+// Module 6.3 — partial index on emergencyMode.isActive. Used by the
+// future dashboard banner ("how many areas are currently in
+// emergency mode") + any admin-side oversight listing. Partial
+// because the dashboard cares about `isActive: true` rows only;
+// inactive rows stay out of the index to keep it small.
+areaSchema.index(
+  { 'emergencyMode.isActive': 1 },
+  {
+    name: 'emergency_active',
+    partialFilterExpression: { 'emergencyMode.isActive': true },
+  }
 );
 
 // ── Static helpers ─────────────────────────────────────────────────────────
