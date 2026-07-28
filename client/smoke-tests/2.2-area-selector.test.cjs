@@ -359,6 +359,66 @@ async function run() {
       'AreaSelector passes search state into MapPanel'
     );
 
+    // ── Display/edit toggle (read-only summary mode) ─────────────────────
+    // The ProfilePage passes `displayMode` when showing the saved
+    // location to the user; the component short-circuits to a
+    // non-interactive summary (no tabs, no inputs, no draggable pin).
+    assert(
+      /displayMode/.test(selectorSrc),
+      'AreaSelector accepts a displayMode prop'
+    );
+    assert(
+      /ReadOnlySummary/.test(selectorSrc),
+      'AreaSelector renders a ReadOnlySummary in display mode'
+    );
+    // The read-only summary must NOT enable any map gestures — no
+    // drag, scroll-wheel zoom, double-click zoom, keyboard pan, or
+    // zoom control. We assert the boolean attribute form (e.g.
+    // `scrollWheelZoom={false}`) appears inside ReadOnlySummary.
+    const readonlyBody = (function () {
+      const m = selectorSrc.match(
+        /function ReadOnlySummary\([\s\S]*?\)\s*\{([\s\S]*?)\n\}/
+      );
+      return m ? m[1] : '';
+    })();
+    assert(
+      readonlyBody.length > 0,
+      'ReadOnlySummary function body parsed'
+    );
+    if (readonlyBody) {
+      assert(
+        /scrollWheelZoom\s*=\s*\{false\}/.test(readonlyBody),
+        'ReadOnlySummary disables scrollWheelZoom'
+      );
+      assert(
+        /dragging\s*=\s*\{false\}/.test(readonlyBody),
+        'ReadOnlySummary disables map dragging'
+      );
+      assert(
+        /doubleClickZoom\s*=\s*\{false\}/.test(readonlyBody),
+        'ReadOnlySummary disables double-click zoom'
+      );
+      assert(
+        /zoomControl\s*=\s*\{false\}/.test(readonlyBody),
+        'ReadOnlySummary hides the zoom control'
+      );
+      assert(
+        /keyboard\s*=\s*\{false\}/.test(readonlyBody),
+        'ReadOnlySummary disables keyboard pan'
+      );
+    }
+    // The empty-state copy must nudge the user toward the Edit button.
+    assert(
+      /No location saved yet/.test(selectorSrc) ||
+        /No location saved/.test(selectorSrc),
+      'ReadOnlySummary shows a "No location saved" empty state'
+    );
+    // The marker must not be draggable in display mode.
+    assert(
+      /draggable\s*=\s*\{false\}/.test(selectorSrc),
+      'AreaSelector marker is NOT draggable in display mode'
+    );
+
     // ── Hooks ─────────────────────────────────────────────────────────────
     const areasHookSrc = fs.readFileSync(
       path.join(CLIENT_ROOT, 'src/hooks/useAreas.js'),
@@ -501,6 +561,53 @@ async function run() {
     assert(
       /refreshUser\s*\(\s*\)/.test(profileSrc),
       'ProfilePage still calls refreshUser() after save'
+    );
+
+    // ── ProfilePage display/edit toggle ──────────────────────────────────
+    // The fix for the user feedback: after a location is saved once,
+    // the profile renders the saved value as a read-only summary with
+    // an "Edit location" button. Clicking it reveals the picker; a
+    // "Cancel" button reverts the in-progress edits.
+    assert(
+      /locationEditing/.test(profileSrc),
+      'ProfilePage tracks a locationEditing toggle state'
+    );
+    assert(
+      /savedLocation/.test(profileSrc),
+      'ProfilePage derives a savedLocation snapshot from user'
+    );
+    assert(
+      /onStartEditLocation/.test(profileSrc),
+      'ProfilePage defines onStartEditLocation handler'
+    );
+    assert(
+      /onCancelEditLocation/.test(profileSrc),
+      'ProfilePage defines onCancelEditLocation handler'
+    );
+    // Edit button copy must be present so the user can find it.
+    assert(
+      /Edit location/.test(profileSrc),
+      'ProfilePage renders the "Edit location" button copy'
+    );
+    assert(
+      /Cancel/.test(profileSrc),
+      'ProfilePage renders the "Cancel" button copy'
+    );
+    // AreaSelector is rendered with `displayMode` when not editing.
+    assert(
+      /displayMode/.test(profileSrc),
+      'ProfilePage passes displayMode to AreaSelector'
+    );
+    // After a successful save the page must flip back to display mode.
+    assert(
+      /setLocationEditing\s*\(\s*false\s*\)/.test(profileSrc),
+      'ProfilePage returns to display mode after a successful save'
+    );
+    // The Cancel handler must restore the form's `area` field to the
+    // saved snapshot — otherwise partial edits can't be reverted.
+    assert(
+      /setValue\s*\(\s*['"]area['"]/.test(profileSrc),
+      'ProfilePage uses setValue("area", ...) to seed/cancel location edits'
     );
 
     // ── App.jsx still wires ProfilePage ───────────────────────────────────

@@ -1,13 +1,24 @@
 /**
- * ProfilePage — self-service profile (Module 1.4 + Module 2.2).
+ * ProfilePage — self-service profile (Module 1.4 + Module 2.2 + 2.2 fix).
  *
  * Two visual sections:
  *   1. Account info (read-only) — avatar, name, role badge, joined date,
  *      last login. Hydrated from AuthContext on mount.
  *   2. Editable info — a react-hook-form with name, email, phone,
- *      and location (AreaSelector — the three-mode picker from
- *      Module 2.2 that drives areaId + lng/lat). Submitting calls
- *      PATCH /api/users/me and refreshes the AuthContext user.
+ *      and location. The location picker (AreaSelector from Module 2.2)
+ *      runs in two modes:
+ *        - DISPLAY mode (default after first save): renders a read-only
+ *          summary showing the saved hierarchy label + a static Leaflet
+ *          map with a single fixed marker. No tabs, no inputs.
+ *          An "Edit location" button sits next to the fieldset.
+ *        - EDIT mode (the picker itself): the interactive three-mode
+ *          AreaSelector renders. A "Cancel" button reverts the local
+ *          form state to the last saved snapshot.
+ *      If the user has never saved a location, the page starts in EDIT
+ *      mode automatically (nothing to display yet).
+ *      Submitting the form PATCHes /api/users/me and refreshes the
+ *      AuthContext; after a successful save the page flips back to
+ *      DISPLAY mode so the user sees the freshly persisted record.
  *
  * Plus an avatar upload form that POSTs a multipart avatar to
  * /api/users/me/avatar. Cloudinary may be unconfigured on the server;
@@ -26,7 +37,7 @@
  *     NEVER read owner contact info from the area tree.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 
@@ -81,6 +92,7 @@ export default function ProfilePage() {
     control,
     handleSubmit,
     reset,
+    setValue,
     setError,
     formState: { errors, isDirty },
   } = useForm({
@@ -108,6 +120,84 @@ export default function ProfilePage() {
       },
     });
   }, [user, reset]);
+
+  // ── Location display/edit toggle ───────────────────────────────────────
+  // After the first successful save, the page shows the location as a
+  // read-only summary (AreaSelector with `displayMode === true`). The
+  // user clicks "Edit location" to flip to the interactive picker.
+  // If the user has never saved a location, we start in EDIT mode
+  // immediately — there's nothing to display yet, so the picker is
+  // always visible.
+  //
+  // `savedLocation` is a stable snapshot of what the server currently
+  // has for this user; it powers the read-only summary and is the
+  // rollback target when the user clicks "Cancel" mid-edit.
+  const savedLocation = useMemo(() => {
+    if (!user) return null;
+    const coords = user.location && user.location.coordinates;
+    const lng = Array.isArray(coords) ? coords[0] : null;
+    const lat = Array.isArray(coords) ? coords[1] : null;
+    const hasArea = Boolean(user.areaId);
+    const hasPoint = lng != null && lat != null;
+    if (!hasArea && !hasPoint) return null;
+    return {
+      areaId: user.areaId || null,
+      lng,
+      lat,
+      // The chain label isn't persisted server-side — the read-only
+      // summary just receives the leaf id + a label derived from it.
+      // When the user enters edit mode, the dropdowns walk the chain
+      // forward from this id so the prior selections are restored.
+      areaLabel: null,
+    };
+  }, [user]);
+
+  const [locationEditing, setLocationEditing] = useState(
+    // Initial value: edit mode iff nothing to display.
+    () => true // will be replaced as soon as user hydrates below
+  );
+
+  // Once `user` arrives (initial AuthContext hydration), decide the
+  // initial mode based on whether saved location data exists.
+  useEffect(() => {
+    if (!user) return;
+    setLocationEditing(!savedLocation);
+    // We intentionally only depend on `user` (not `savedLocation`) —
+    // `savedLocation` is itself derived from `user` and using both
+    // would loop. The flip only matters on the first hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  function locationSeedFromSaved() {
+    if (!savedLocation) {
+      return { areaId: null, lng: null, lat: null, areaLabel: null };
+    }
+    return {
+      areaId: savedLocation.areaId,
+      lng: savedLocation.lng,
+      lat: savedLocation.lat,
+      areaLabel: null,
+    };
+  }
+
+  function onStartEditLocation() {
+    // Re-seed the form's `area` field with the saved snapshot so the
+    // picker opens with the prior selection prefilled. We do NOT touch
+    // name/email/phone — the user might already be mid-edit on those
+    // fields when they click "Edit location" on the fieldset.
+    setValue('area', locationSeedFromSaved(), {
+      shouldDirty: false, // don't mark the form dirty just from opening
+    });
+    setLocationEditing(true);
+  }
+
+  function onCancelEditLocation() {
+    // Revert ONLY the `area` field to the last saved snapshot — leave
+    // name/email/phone alone, the user might be editing those in
+    // parallel and we shouldn't blow them away.
+    setValue('area', locationSeedFromSaved(), { shouldDirty: false });
+    setLocationEditing(false);
+  }
 
   const [serverError, setServerError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -137,6 +227,10 @@ export default function ProfilePage() {
       toast.success('Profile saved');
       reset({ ...values });
       // Mark the form as pristine so the Save button disables again.
+      // Return to read-only location display (if there was one to show).
+      // The useEffect that watches `user` will pick up the new areaId/
+      // location and recompute `savedLocation` accordingly.
+      setLocationEditing(false);
     } catch (err) {
       const { topMessage, fieldErrors, status } = extractFormError(err);
       setServerError({ message: topMessage, status });
@@ -327,28 +421,64 @@ export default function ProfilePage() {
           </Field>
 
           <fieldset>
-            <legend className="block text-sm font-medium text-slate-700">
-              Location
-            </legend>
+            <div className="flex items-center justify-between gap-2">
+              <legend className="block text-sm font-medium text-slate-700">
+                Location
+              </legend>
+              {savedLocation && !locationEditing && (
+                <button
+                  type="button"
+                  onClick={onStartEditLocation}
+                  disabled={saving}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Edit location
+                </button>
+              )}
+              {savedLocation && locationEditing && (
+                <button
+                  type="button"
+                  onClick={onCancelEditLocation}
+                  disabled={saving}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
             <p className="mt-1 text-xs text-slate-500">
-              Pick where you live — by district hierarchy, by address search,
-              or by dropping a pin on the map. All three are optional.
+              {locationEditing
+                ? 'Pick where you live — by district hierarchy, by address search, or by dropping a pin on the map. All three are optional.'
+                : 'Your saved location. Click Edit to change it.'}
             </p>
             <div className="mt-2">
-              <Controller
-                control={control}
-                name="area"
-                render={({ field }) => (
-                  <AreaSelector
-                    initialAreaId={field.value?.areaId || null}
-                    initialLng={field.value?.lng ?? null}
-                    initialLat={field.value?.lat ?? null}
-                    initialAreaLabel={field.value?.areaLabel || null}
-                    onChange={(next) => field.onChange(next)}
-                    disabled={saving}
-                  />
-                )}
-              />
+              {locationEditing ? (
+                <Controller
+                  control={control}
+                  name="area"
+                  render={({ field }) => (
+                    <AreaSelector
+                      initialAreaId={field.value?.areaId || null}
+                      initialLng={field.value?.lng ?? null}
+                      initialLat={field.value?.lat ?? null}
+                      initialAreaLabel={field.value?.areaLabel || null}
+                      onChange={(next) => field.onChange(next)}
+                      disabled={saving}
+                    />
+                  )}
+                />
+              ) : (
+                <AreaSelector
+                  initialAreaId={savedLocation?.areaId ?? null}
+                  initialLng={savedLocation?.lng ?? null}
+                  initialLat={savedLocation?.lat ?? null}
+                  initialAreaLabel={savedLocation?.areaLabel ?? null}
+                  displayMode
+                  onChange={() => {
+                    /* read-only — parent owns the toggle */
+                  }}
+                />
+              )}
             </div>
           </fieldset>
 

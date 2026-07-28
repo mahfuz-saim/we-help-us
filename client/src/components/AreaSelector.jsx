@@ -1,14 +1,26 @@
 /**
- * AreaSelector — the location picker (Module 2.2, post-fix).
+ * AreaSelector — the location picker (Module 2.2).
  *
- * Two input modes, both surfaces of the same `value`:
- *   - "By hierarchy" — five cascading <select> dropdowns that walk
- *     district → upazila → union → ward → village.
- *   - "Pick on map" — Leaflet map with a draggable pin. A debounced
- *     Nominatim search box sits ABOVE the map and helps the user
- *     recenter on a known address; clicking a result drops the pin
- *     there so the user can drag/refine it. The pin (not the search
- *     result) is the source of truth for `lng/lat`.
+ * Two operating modes:
+ *
+ *   - Interactive (default, `displayMode === false`):
+ *       Two input surfaces for the same `value`:
+ *         - "By hierarchy" — five cascading <select> dropdowns that
+ *           walk district → upazila → union → ward → village.
+ *         - "Pick on map" — Leaflet map with a draggable pin. A
+ *           debounced Nominatim search box sits ABOVE the map and
+ *           helps the user recenter on a known address; clicking a
+ *           result drops the pin there so the user can drag/refine
+ *           it. The pin (not the search result) is the source of
+ *           truth for `lng/lat`.
+ *
+ *   - Read-only (`displayMode === true`):
+ *       Renders a compact summary showing the saved hierarchy label
+ *       and a NON-INTERACTIVE Leaflet map with a single fixed marker
+ *       at the saved lat/lng. No tabs, no dropdowns, no draggable
+ *       pin, no search input. The parent is expected to render an
+ *       "Edit" button next to this; clicking it flips the mode back
+ *       to interactive (caller lowers `displayMode` to `false`).
  *
  * Output shape (passed to `onChange`):
  *   {
@@ -25,8 +37,11 @@
  *
  * KEY DESIGN REMINDERS honored:
  *   - The map / search are user-initiated. No silent geolocation.
- *   - The two modes are independent — picking a pin doesn't reset
- *     the dropdown chain and vice versa.
+ *   - The two interactive surfaces are independent — picking a pin
+ *     doesn't reset the dropdown chain and vice versa.
+ *   - Display mode is purely cosmetic; no PII is leaked. The marker
+ *     shows lat/lng, the summary shows the area name (already in the
+ *     user's profile record).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -57,6 +72,10 @@ const SEARCH_RESULT_ZOOM = 16;
  * @param {number}  [props.initialLat]
  * @param {string}  [props.initialAreaLabel]  Read-only hint shown on first paint
  * @param {boolean} [props.disabled=false]
+ * @param {boolean} [props.displayMode=false] When true, render the
+ *                                          read-only summary (label +
+ *                                          static map with marker).
+ *                                          No inputs, no tabs.
  * @param {(value: {areaId, lng, lat, areaLabel}) => void} props.onChange
  */
 export default function AreaSelector({
@@ -65,8 +84,23 @@ export default function AreaSelector({
   initialLat = null,
   initialAreaLabel = null,
   disabled = false,
+  displayMode = false,
   onChange,
 }) {
+  // ── Read-only branch ──────────────────────────────────────────────────
+  // When the parent says "just show me what's saved", we skip all the
+  // state machinery and render a single summary panel. Nothing in here
+  // emits onChange — the parent controls when to flip back to edit.
+  if (displayMode) {
+    return (
+      <ReadOnlySummary
+        areaLabel={initialAreaLabel}
+        lng={initialLng}
+        lat={initialLat}
+      />
+    );
+  }
+
   const [activeTab, setActiveTab] = useState('hierarchy');
 
   // ── Hierarchy state ────────────────────────────────────────────────────
@@ -154,6 +188,89 @@ export default function AreaSelector({
       </div>
 
       <Summary chain={chain} pin={pin} />
+    </div>
+  );
+}
+
+// ── Read-only summary (used when displayMode === true) ────────────────────
+function ReadOnlySummary({ areaLabel, lng, lat }) {
+  const point = pointOrNull(lng, lat);
+  const hasLabel = Boolean(areaLabel);
+  const hasPoint = Boolean(point);
+
+  if (!hasLabel && !hasPoint) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-600">
+        No location saved yet. Click <span className="font-medium">Edit</span>{' '}
+        to pick where you live.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {hasLabel && (
+        <div className="flex items-start gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Area
+          </span>
+          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-sm text-slate-800">
+            {areaLabel}
+          </span>
+        </div>
+      )}
+
+      {hasPoint && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Map
+            </span>
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-800">
+              {point.lat.toFixed(5)}, {point.lng.toFixed(5)}
+            </span>
+          </div>
+          <div className="h-64 overflow-hidden rounded-md border border-slate-200">
+            <MapContainer
+              center={[point.lat, point.lng]}
+              zoom={SEARCH_RESULT_ZOOM}
+              style={{ height: '100%', width: '100%' }}
+              scrollWheelZoom={false}
+              dragging={false}
+              doubleClickZoom={false}
+              zoomControl={false}
+              keyboard={false}
+              attributionControl={true}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Marker
+                position={[point.lat, point.lng]}
+                // Not draggable — read-only.
+                draggable={false}
+                eventHandlers={{ click: () => {} }}
+              />
+            </MapContainer>
+          </div>
+          <p className="text-xs text-slate-500">
+            This is the saved location. Click <span className="font-medium">Edit</span>{' '}
+            to change it.
+          </p>
+        </div>
+      )}
+
+      {!hasLabel && hasPoint && (
+        <p className="text-xs text-slate-500">
+          No hierarchy area selected — only a map pin is saved.
+        </p>
+      )}
+      {hasLabel && !hasPoint && (
+        <p className="text-xs text-slate-500">
+          No map pin saved — only the area hierarchy.
+        </p>
+      )}
     </div>
   );
 }
