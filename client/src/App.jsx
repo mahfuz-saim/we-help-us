@@ -7,6 +7,7 @@ import RegisterPage from './pages/RegisterPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import HealthPage from './pages/HealthPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
+import ResourceRegisterPage from './pages/owner/ResourceRegisterPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -30,11 +31,15 @@ export default function App() {
           <Route path="profile" element={<ProfilePage />} />
         </Route>
 
-        {/* Owner-only — added in Phase 3.5 */}
+        {/* Owner-only — registration form (3.4) + dashboard (3.5) */}
         <Route element={<ProtectedRoute roles={['OWNER']} />}>
           <Route
             path="owner/resources"
             element={<HomePage placeholder="My Resources (3.5)" />}
+          />
+          <Route
+            path="owner/resources/new"
+            element={<ResourceRegisterPage />}
           />
         </Route>
 
