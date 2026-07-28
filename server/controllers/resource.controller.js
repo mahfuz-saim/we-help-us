@@ -158,6 +158,13 @@ async function listResources(req, res, next) {
     if (req.query.category) filter.category = req.query.category;
     if (req.query.status) filter.status = req.query.status;
     if (req.query.areaId) filter.areaId = req.query.areaId;
+    // `?mine=1` narrows the list to resources owned by the caller.
+    // Module 3.5's owner dashboard uses this; Module 4.1 / 5.2 do not
+    // (they want the full feed). We compare by reference then string
+    // so an ObjectId never sneaks past the filter.
+    if (req.query.mine === '1') {
+      filter.ownerId = req.user._id;
+    }
     if (req.query.q) {
       // Case-insensitive regex on title + description. Mongo will scan
       // either way; the status/category/areaId compound index keeps the

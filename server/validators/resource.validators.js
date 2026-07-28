@@ -130,6 +130,13 @@ const listResourcesQuerySchema = z
       .regex(/^[a-fA-F0-9]{24}$/, 'areaId must be a valid ObjectId')
       .optional(),
     q: z.string().trim().min(1).max(120).optional(),
+    // `mine=1` filters the list down to resources owned by the caller
+    // (Module 3.5's dashboard). We accept only the literal '1' so a
+    // caller can't sneak in a different value via a sloppy param.
+    mine: z
+      .string()
+      .regex(/^1$/, 'mine must be 1')
+      .optional(),
     page: z
       .string()
       .regex(/^[1-9]\d*$/, 'page must be a positive integer')
