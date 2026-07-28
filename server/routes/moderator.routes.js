@@ -1,12 +1,12 @@
 /**
- * Moderator routes — Module 6.1 (Moderator APIs).
+ * Moderator routes — Modules 6.1 + 6.2.
  *
  * Mounted under `/api/moderator` from routes/index.js.
  *
  * Every endpoint here is gated by `protect, authorize('MODERATOR',
  * 'ADMIN')` at the router level. Per-endpoint validators are strict
- * so an unknown query key surfaces as a 400 instead of a silent pass-
- * through.
+ * so an unknown query key / body field / path field surfaces as a
+ * 400 instead of a silent pass-through.
  */
 
 const express = require('express');
@@ -18,6 +18,8 @@ const {
   pendingRequestsQuerySchema,
   volunteersQuerySchema,
   ownersQuerySchema,
+  verifyVolunteerParamsSchema,
+  verifyVolunteerBodySchema,
 } = require('../validators/moderator.validators');
 const moderatorCtrl = require('../controllers/moderator.controller');
 
@@ -52,6 +54,17 @@ router.get(
   '/owners',
   validate(ownersQuerySchema, 'query'),
   asyncHandler(moderatorCtrl.getOwners)
+);
+
+// POST /api/moderator/verify-volunteer/:userId — Module 6.2.
+// `validate(schema, 'params')` runs first so a malformed :userId is a
+// 400 before the handler is called. The body schema is `.optional()`
+// so an empty body (the typical "no note" verify) is accepted.
+router.post(
+  '/verify-volunteer/:userId',
+  validate(verifyVolunteerParamsSchema, 'params'),
+  validate(verifyVolunteerBodySchema),
+  asyncHandler(moderatorCtrl.verifyVolunteer)
 );
 
 module.exports = router;

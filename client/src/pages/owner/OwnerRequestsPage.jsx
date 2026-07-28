@@ -348,6 +348,15 @@ function RequestRow({
             <span className="font-medium text-slate-700">
               {volunteer ? volunteer.name : 'unknown volunteer'}
             </span>{' '}
+            {volunteer && volunteer.isVerified && (
+              <span
+                title="Verified volunteer"
+                aria-label="Verified volunteer"
+                className="ml-1 inline-flex items-center gap-1 rounded-full bg-safe-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-safe-800"
+              >
+                <span aria-hidden>✓</span> Verified
+              </span>
+            )}{' '}
             · Submitted {formatDate(r.requestedAt)}
             {r.approvedAt ? ` · Approved ${formatDate(r.approvedAt)}` : ''}
             {r.collectedAt ? ` · Collected ${formatDate(r.collectedAt)}` : ''}

@@ -334,6 +334,15 @@ export default function ProfilePage() {
           <div className="flex-1">
             <h1 className="text-xl font-semibold text-slate-900">
               {user.name || 'Unnamed user'}
+              {user.role === 'VOLUNTEER' && user.isVerified && (
+                <span
+                  title="Verified volunteer"
+                  aria-label="Verified volunteer"
+                  className="ml-2 inline-flex items-center gap-1 rounded-full bg-safe-100 px-2 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-safe-800"
+                >
+                  <span aria-hidden>✓</span> Verified
+                </span>
+              )}
             </h1>
             <div className="mt-1 flex items-center gap-2 text-sm text-slate-600">
               <RoleBadge role={user.role} />
@@ -345,7 +354,31 @@ export default function ProfilePage() {
         <dl className="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
           <Meta label="Joined" value={formatDate(user.createdAt)} />
           <Meta label="Last login" value={formatRelative(user.lastLoginAt)} />
-          <Meta label="Verified" value={user.isVerified ? 'Yes' : 'No'} />
+          {user.role === 'VOLUNTEER' ? (
+            <Meta
+              label="Verification"
+              value={
+                user.isVerified ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-safe-100 px-2 py-0.5 text-xs font-semibold text-safe-800">
+                    <span aria-hidden>✓</span> Verified by moderator
+                  </span>
+                ) : (
+                  <span className="text-slate-500">Not yet verified</span>
+                )
+              }
+            />
+          ) : (
+            <Meta
+              label="Verified"
+              value={
+                user.isVerified
+                  ? 'Yes'
+                  : user.role === 'ADMIN' || user.role === 'MODERATOR'
+                    ? 'Privileged (verified by definition)'
+                    : 'No'
+              }
+            />
+          )}
         </dl>
       </header>
 

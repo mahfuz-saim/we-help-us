@@ -1,24 +1,28 @@
 /**
- * Moderator controller — Module 6.1 (Moderator APIs).
+ * Moderator controller — Modules 6.1 + 6.2.
  *
- * Read-only, area-scoped oversight surface for the MODERATOR role.
- * Four endpoints:
- *   - GET /api/moderator/area-resources
- *   - GET /api/moderator/pending-requests
- *   - GET /api/moderator/volunteers
- *   - GET /api/moderator/owners
+ * Read-only, area-scoped oversight surface for the MODERATOR role
+ * plus the volunteer-verification action:
+ *   - GET  /api/moderator/area-resources
+ *   - GET  /api/moderator/pending-requests
+ *   - GET  /api/moderator/volunteers
+ *   - GET  /api/moderator/owners
+ *   - POST /api/moderator/verify-volunteer/:userId   (Module 6.2)
  *
  * Every endpoint is gated on `authorize('MODERATOR', 'ADMIN')` at the
  * router layer. The controller only enforces area scoping + the
- * read-only contract.
+ * read-only contract + the verification role gate.
  *
  * Privacy (KEY DESIGN REMINDER):
- *   None of the four endpoints expose email / phone / password. The
+ *   None of the five endpoints expose email / phone / password. The
  *   resource endpoint reuses `publicResource()` from the resource
  *   controller (which already strips owner contact). The directory
  *   endpoints use a private `publicUserDirectory()` helper that
  *   returns id + name + role + isVerified + isActive + areaId +
- *   timestamps ONLY.
+ *   timestamps ONLY. The verification endpoint responds via
+ *   `toSafeObject()`, which strips `password`; `isVerified` IS
+ *   exposed so the UI can render the verified badge next to the
+ *   volunteer's name.
  *
  * Role scoping:
  *   - MODERATOR: queries are filtered to `req.user.areaId`. A moderator
@@ -28,6 +32,7 @@
  *     oversight role without geographic constraints.
  */
 
+const ApiError = require('../utils/apiError');
 const { ok } = require('../utils/apiResponse');
 const Resource = require('../models/Resource');
 const ResourceRequest = require('../models/ResourceRequest');
@@ -319,10 +324,98 @@ async function getOwners(req, res, next) {
   }
 }
 
+// ── POST /api/moderator/verify-volunteer/:userId ──────────────────────────
+// Module 6.2 — the moderator's verification action.
+//
+// Role gate:
+//   - Only users with role === VOLUNTEER are eligible for verification.
+//     Trying to verify an OWNER / MODERATOR / ADMIN returns 400 (the
+//     intent is unclear, and silently letting it through would mask
+//     role-mismatch bugs in upstream callers).
+//   - Only the moderator's own area can be verified. A moderator with
+//     no areaId cannot verify anyone (matches the 5.5 contract). A
+//     moderator in area A cannot verify a volunteer in area B — that's
+//     a 403. ADMIN is the exception: admin is global, so admin can
+//     verify across areas (mirrors how admin can list globally).
+//
+// Idempotency:
+//   - If the volunteer is already verified (isVerified === true) we
+//     return 200 with the existing user (no-op). This keeps a
+//     double-click on the moderator's "Verify" button safe.
+//
+// Privacy (KEY DESIGN REMINDER):
+//   - The response uses `publicUserDirectory()` (same private helper
+//     that powers GET /api/moderator/volunteers). It strips `password`,
+//     AND — crucially — never includes `email` or `phone`. Moderators
+//     have no business phoning home for a volunteer's contact info
+//     through this action endpoint; if/when safe coordination is
+//     needed, the trusted channel is the resource request, not the
+//     directory. The UI can re-render the badge using the returned
+//     `isVerified` boolean.
+async function verifyVolunteer(req, res, next) {
+  try {
+    const { userId } = req.params;
+    // Body is validated by `verifyVolunteerBodySchema` upstream; the
+    // optional `moderatorNote` is intentionally NOT persisted in this
+    // module — User has no moderatorNote field, and inventing one
+    // would be out of scope. The endpoint accepts the field for forward
+    // compatibility with future audit-log work (Module 7.x).
+    const volunteer = await User.findById(userId);
+    if (!volunteer) {
+      throw new ApiError(404, 'Volunteer not found');
+    }
+    if (volunteer.role !== User.ROLES.VOLUNTEER) {
+      throw new ApiError(
+        400,
+        'Only users with the VOLUNTEER role can be verified through this endpoint.'
+      );
+    }
+
+    // Area gate: moderator can only verify volunteers in their own
+    // area. No-area moderator → 403 (cannot verify "any" volunteer).
+    // Admin bypasses the area check (admin is global).
+    if (req.user.role !== User.ROLES.ADMIN) {
+      if (!req.user.areaId) {
+        throw new ApiError(
+          403,
+          'You must be assigned to an area to verify volunteers.'
+        );
+      }
+      const volunteerArea =
+        volunteer.areaId && volunteer.areaId.toString();
+      if (volunteerArea !== req.user.areaId.toString()) {
+        throw new ApiError(
+          403,
+          'You can only verify volunteers within your own area.'
+        );
+      }
+    }
+
+    // Idempotent verify: if already verified, just return the user.
+    if (volunteer.isVerified !== true) {
+      volunteer.isVerified = true;
+      await volunteer.save();
+    }
+
+    // Use the directory-shape strip so this endpoint NEVER surfaces
+    // email, phone, or password to a moderator caller. The UI only
+    // needs name + isVerified to refresh the badge, so there's no
+    // reason to round-trip contact data here.
+    return ok(
+      res,
+      { user: publicUserDirectory(volunteer) },
+      'Volunteer verified'
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getAreaResources,
   getPendingRequests,
   getVolunteers,
   getOwners,
+  verifyVolunteer,
   publicUserDirectory,
 };

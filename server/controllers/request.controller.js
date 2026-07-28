@@ -73,12 +73,19 @@ const DEFAULT_LIMIT = 20;
  * resource responses. NEVER call this with the auth-only fields —
  * the caller decides whether contact info is revealed, not this
  * helper.
+ *
+ * Module 6.2 surface includes `isVerified` so the UI can render the
+ * "Verified" badge next to a volunteer's name on owner + moderator
+ * dashboards. The field is read off the populated User doc directly
+ * (the list endpoint populates `volunteerId` with `name isVerified`
+ * since 6.2 — see listRequests).
  */
 function publicUserSummary(user) {
   if (!user) return null;
   return {
     id: typeof user.id === 'string' ? user.id : user._id?.toString(),
     name: user.name,
+    isVerified: user.isVerified === true,
   };
 }
 
@@ -391,7 +398,12 @@ async function listRequests(req, res, next) {
         // `.phone` are NEVER surfaced here (the list endpoint is
         // gated to summaries only; contact reveal is a per-request
         // action's response).
-        .populate('volunteerId', 'name')
+        //
+        // Module 6.2 adds `isVerified` to the volunteer populate so
+        // the OWNER + MODERATOR dashboards can render the verified
+        // badge without a per-row fetch. `email` / `phone` remain
+        // absent from the populate.
+        .populate('volunteerId', 'name isVerified')
         .populate('resourceId', 'category title status'),
       ResourceRequest.countDocuments(filter),
     ]);
