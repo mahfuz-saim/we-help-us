@@ -25,16 +25,18 @@
  *      endpoint uses) doesn't return a distance — and adding a
  *      separate aggregation would break skip/limit semantics.
  *
- *   5. NO navigation to a detail page — Module 4.2 doesn't exist
- *      yet. Cards aren't clickable. We deliberately don't stub a
- *      "/resources/:id" route because that'd dead-end the user.
+ *   5. Each card is wrapped in a `<Link to="/resources/:id">` so the
+ *      user can drill into the full details page (Module 4.2). The
+ *      details page exposes the photo gallery, full description, and
+ *      a privacy-safe action row — owner contact info stays hidden
+ *      until Module 5.2 (after APPROVED + COLLECTED).
  *
  * Role: any logged-in user (OWNER, VOLUNTEER, MODERATOR, ADMIN). The
  * route guard is the auth-only `ProtectedRoute` (no `roles` prop).
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AreaCascadeFilter from '../components/AreaCascadeFilter';
@@ -389,8 +391,12 @@ function ResourceCard({ resource, user }) {
   }, [user, resource.location]);
 
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-start gap-3">
+    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow">
+      <Link
+        to={`/resources/${resource.id}`}
+        className="flex flex-wrap items-start gap-3"
+        aria-label={`Open details for ${resource.title || 'resource'}`}
+      >
         <span
           className="text-2xl leading-none"
           aria-hidden
@@ -450,7 +456,7 @@ function ResourceCard({ resource, user }) {
             </div>
           )}
         </div>
-      </div>
+      </Link>
     </li>
   );
 }
