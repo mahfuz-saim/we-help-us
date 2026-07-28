@@ -5,6 +5,12 @@
  * tokens belongs here so it's a single source of truth.
  */
 
+import {
+  CATEGORIES,
+  CATEGORY_VALUES,
+  CATEGORY_META,
+} from './categories';
+
 // Roles — must match the User.role enum on the server (Module 1.1).
 export const ROLES = Object.freeze({
   OWNER: 'OWNER',
@@ -21,17 +27,11 @@ export const PUBLIC_REGISTRATION_ROLES = Object.freeze([
   ROLES.VOLUNTEER,
 ]);
 
-// Resource categories — must match server-side Resource.category enum (Module 3.1).
-// Plus emoji icons for quick visual identification (Module 3.3 maps these
-// to Leaflet DivIcons).
-export const RESOURCE_CATEGORIES = Object.freeze([
-  { value: 'TRANSPORTATION',     label: 'Transportation',          icon: '🚗' },
-  { value: 'RESCUE_EQUIPMENT',   label: 'Rescue Equipment',        icon: '🛟' },
-  { value: 'MEDICAL',            label: 'Medical',                 icon: '⛑️' },
-  { value: 'INFRASTRUCTURE',     label: 'Infrastructure',          icon: '🏗️' },
-  { value: 'UTILITIES',          label: 'Utilities',               icon: '💡' },
-  { value: 'SKILLED_PROFESSIONALS', label: 'Skilled Professionals', icon: '🧑‍🔧' },
-]);
+// Resource categories — canonical source is client/src/utils/categories.js
+// (Module 3.3, shared with server/utils/categories.js). We re-export
+// the meta here as `RESOURCE_CATEGORIES` so existing imports keep
+// working — the source of truth is the categories module.
+export const RESOURCE_CATEGORIES = CATEGORY_META;
 
 // Resource statuses — must match server-side Resource.status enum (Module 3.1).
 export const RESOURCE_STATUS = Object.freeze({
@@ -75,3 +75,8 @@ export const AREA_LEVELS = Object.freeze([
 // default tiles render at zoom 13 for ~city-block detail.
 export const DEFAULT_MAP_CENTER = Object.freeze({ lat: 23.8103, lng: 90.4125 });
 export const DEFAULT_MAP_ZOOM = 12;
+
+// Re-export the category enum so consumers can choose:
+//   import { CATEGORIES, CATEGORY_VALUES } from '../utils/constants';
+// without reaching into the categories module directly.
+export { CATEGORIES, CATEGORY_VALUES };

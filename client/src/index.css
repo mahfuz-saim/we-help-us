@@ -83,3 +83,63 @@ body,
 #root {
   height: 100%;
 }
+
+/* ── Resource category map markers (Module 3.3) ──────────────────────── */
+/*
+ * Leaflet renders DivIcons inside its own .leaflet-div-icon container.
+ * We strip the default white box + border so the .whu-pin is the only
+ * visible element on the map. The .whu-pin itself is a 36x36 colored
+ * circle (Tailwind ring + bg from the design tokens above) with the
+ * category emoji in the center.
+ *
+ * Status overlays (Module 4.3) layer on top via .whu-pin--status-* —
+ * the class is added by the Leaflet DivIcon factory in
+ * utils/categories.js. For 3.3 we just define the base styles; the
+ * status-specific ring colors land alongside the map view.
+ */
+.leaflet-div-icon.whu-category-icon {
+  background: transparent;
+  border: none;
+}
+
+.whu-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  /* `ring` utilities (Tailwind v4) use --default-ring-width which is
+     3px by default — perfect for the colored ring effect. */
+  box-shadow:
+    0 0 0 3px currentColor,
+    0 2px 4px rgba(0, 0, 0, 0.15);
+  /* The pin's text color is the colored ring. We rely on Tailwind's
+     `text-<color>-<shade>` for the emoji fill, but the ring itself is
+     `currentColor` driven by the bg + ring classes above. */
+}
+
+.whu-pin__emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Status overlays — Module 4.3 will set the ring color per status. For
+ * now we provide hook classes so 4.3 only needs to add CSS, not
+ * re-touch the icon factory. */
+.whu-pin--status-available {
+  /* default ring already tinted by category; future module can swap. The
+     `display` declaration is a sentinel so the CSS minifier keeps the
+     rule in the production bundle — Module 4.3 will expand this. */
+  display: inherit;
+}
+.whu-pin--status-reserved {
+  opacity: 0.85;
+}
+.whu-pin--status-in_use {
+  opacity: 0.7;
+}
+.whu-pin--status-unavailable {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}

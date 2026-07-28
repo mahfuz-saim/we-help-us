@@ -7,10 +7,11 @@
  *     location (GeoJSON Point), areaId, createdAt
  *   - Add 2dsphere index on location
  *
- * Module 3.2 will mount the CRUD endpoints. Module 3.3 will promote the
- * `category` enum to a shared constants file (with icon mappings). For
- * 3.1 the enum is defined inline here using the 6 categories listed in
- * 3.3's spec — 3.3 can re-export them without changing the schema.
+ * Module 3.2 mounts the CRUD endpoints. Module 3.3 promoted the
+ * `category` enum into server/utils/categories.js (shared with the
+ * client). The schema imports CATEGORIES / CATEGORY_VALUES from there
+ * so a single change to the canonical list updates the model, the
+ * API validation, and the future map view (4.3) in one stroke.
  *
  * Design reminders baked into this model:
  *   - **Privacy**: owner contact info (phone/email) is NEVER stored on
@@ -37,22 +38,10 @@
  */
 
 const mongoose = require('mongoose');
-
-// ── Enums ──────────────────────────────────────────────────────────────────
-
-// Categories. 3.3 will move these into a shared constants file along
-// with emoji + Leaflet icon mappings. The string values must stay
-// stable across that refactor — they're part of the on-disk contract.
-const CATEGORIES = Object.freeze({
-  TRANSPORTATION: 'TRANSPORTATION',
-  RESCUE_EQUIPMENT: 'RESCUE_EQUIPMENT',
-  MEDICAL: 'MEDICAL',
-  INFRASTRUCTURE: 'INFRASTRUCTURE',
-  UTILITIES: 'UTILITIES',
-  SKILLED_PROFESSIONALS: 'SKILLED_PROFESSIONALS',
-});
-
-const CATEGORY_VALUES = Object.values(CATEGORIES);
+const {
+  CATEGORIES,
+  CATEGORY_VALUES,
+} = require('../utils/categories');
 
 // Status reflects the lifecycle. The transitions are enforced by the
 // request controller in Module 5.2 — the schema only validates that
