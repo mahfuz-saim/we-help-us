@@ -53,6 +53,14 @@ export default function MainLayout() {
                 >
                   Map
                 </NavLink>
+                {user.role === 'VOLUNTEER' && (
+                  <NavLink
+                    to="/volunteer/requests"
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    My Requests
+                  </NavLink>
+                )}
                 <NavLink
                   to="/profile"
                   className={({ isActive }) => navLinkClass(isActive)}

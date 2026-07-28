@@ -12,6 +12,7 @@ import OwnerDashboardPage from './pages/owner/OwnerDashboardPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
+import VolunteerDashboardPage from './pages/volunteer/VolunteerDashboardPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -59,7 +60,7 @@ export default function App() {
         <Route element={<ProtectedRoute roles={['VOLUNTEER']} />}>
           <Route
             path="volunteer/requests"
-            element={<HomePage placeholder="My Requests (5.3)" />}
+            element={<VolunteerDashboardPage />}
           />
         </Route>
 
