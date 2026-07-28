@@ -38,11 +38,40 @@
 
 const Notification = require('../models/Notification');
 const User = require('../models/User');
+const { emitNotificationToUser } = require('../sockets/emitter');
+
+/**
+ * Module 7.4 — contact-free wire shape for real-time payloads. Mirrors
+ * server/controllers/notification.controller.js's `publicNotification`
+ * helper so the REST GET and the Socket.io event agree byte-for-byte.
+ */
+function publicNotificationPayload(doc) {
+  if (!doc) return null;
+  const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  return {
+    id: obj.id,
+    recipientId: obj.recipientId ? obj.recipientId.toString() : null,
+    title: obj.title,
+    message: obj.message,
+    type: obj.type,
+    relatedId: obj.relatedId ? obj.relatedId.toString() : null,
+    isRead: obj.isRead === true,
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+  };
+}
 
 function safeCreate(doc) {
   // Detached from the caller. Errors are logged but never propagated.
+  // Module 7.4: a successful insert is also broadcast to the recipient's
+  // `user_<id>` Socket.io room so the dashboard's bell + toast can
+  // surface the row immediately (no manual refetch).
   Promise.resolve()
     .then(() => Notification.create(doc))
+    .then((created) => {
+      const payload = publicNotificationPayload(created);
+      if (payload) emitNotificationToUser(payload.recipientId, payload);
+    })
     .catch((err) => {
       // eslint-disable-next-line no-console
       console.warn(

@@ -5,8 +5,11 @@
  *   - initialize the Socket.io server attached to the HTTP server
  *   - expose a `getIO()` accessor so future modules can emit events
  *
- * Full real-time logic (user-specific rooms, notification fan-out,
- * live map updates) is implemented in Module 7.4.
+ * Module 7.4 adds:
+ *   - per-user room join on handshake (`user_<id>`) for `notification:new`
+ *   - public room auto-join (`public_resources`) so unauthenticated
+ *     sockets (e.g. the map view) also receive `resource:status`
+ *     broadcasts.
  */
 
 const { Server } = require('socket.io');
@@ -43,6 +46,10 @@ function initSocket(server, { corsOrigin }) {
   });
 
   io.on('connection', (socket) => {
+    // Every connection joins the public resources room. The map view
+    // (Module 7.5) needs `resource:status` even for unauthenticated
+    // visitors, so we don't gate this on a user id.
+    socket.join('public_resources');
     if (socket.data.userId) {
       const room = `user_${socket.data.userId}`;
       socket.join(room);

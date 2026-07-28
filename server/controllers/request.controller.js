@@ -63,6 +63,7 @@ const ResourceRequest = require('../models/ResourceRequest');
 const Resource = require('../models/Resource');
 const User = require('../models/User');
 const notificationTriggers = require('../services/notificationTriggers');
+const { emitResourceStatusUpdate } = require('../sockets/emitter');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -544,6 +545,12 @@ async function approveRequest(req, res, next) {
 
     await Promise.all([doc.save(), resource.save()]);
 
+    emitResourceStatusUpdate({
+      resourceId: resource._id,
+      status: resource.status,
+      areaId: resource.areaId,
+    });
+
     notificationTriggers.onRequestApproved({ request: doc, actor: req.user });
 
     return ok(res, { request: publicRequest(doc) }, 'Request approved');
@@ -603,6 +610,7 @@ async function rejectRequest(req, res, next) {
     // request was REQUESTED, the resource was still AVAILABLE and
     // we don't touch it.
     const tasks = [doc.save()];
+    let rejectedResource = null;
     if (doc.approvedAt) {
       const resource = await Resource.findById(doc.resourceId);
       if (
@@ -612,9 +620,18 @@ async function rejectRequest(req, res, next) {
       ) {
         resource.status = Resource.STATUS.AVAILABLE;
         tasks.push(resource.save());
+        rejectedResource = resource;
       }
     }
     await Promise.all(tasks);
+
+    if (rejectedResource) {
+      emitResourceStatusUpdate({
+        resourceId: rejectedResource._id,
+        status: rejectedResource.status,
+        areaId: rejectedResource.areaId,
+      });
+    }
 
     notificationTriggers.onRequestRejected({ request: doc, actor: req.user });
 
@@ -666,6 +683,12 @@ async function collectRequest(req, res, next) {
     resource.status = Resource.STATUS.IN_USE;
 
     await Promise.all([doc.save(), resource.save()]);
+
+    emitResourceStatusUpdate({
+      resourceId: resource._id,
+      status: resource.status,
+      areaId: resource.areaId,
+    });
 
     notificationTriggers.onRequestCollected({ request: doc, actor: req.user });
 
@@ -767,6 +790,12 @@ async function completeRequest(req, res, next) {
     resource.status = Resource.STATUS.AVAILABLE;
 
     await resource.save();
+
+    emitResourceStatusUpdate({
+      resourceId: resource._id,
+      status: resource.status,
+      areaId: resource.areaId,
+    });
 
     notificationTriggers.onRequestCompleted({ request: doc, actor: req.user });
 
