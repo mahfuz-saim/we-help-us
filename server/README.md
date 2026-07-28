@@ -27,9 +27,69 @@ Default port: **5000** (override with `PORT`).
 |--------|------------------|----------------------------|
 | GET    | `/`              | Service banner             |
 | GET    | `/api/health`    | Health check (no auth)     |
+| GET    | `/api/areas`     | Cascading dropdown query (Module 2.1, no auth) |
 
-Feature endpoints land in later modules (auth, areas, resources, requests,
-moderator, notifications, analytics).
+Feature endpoints land in later modules (resources, requests, moderator,
+notifications, analytics).
+
+### `GET /api/areas`
+
+Public reference-data endpoint. Powers the cascading administrative
+dropdown (district → upazila → union → ward → village). No auth required —
+areas are not PII.
+
+Query parameters (at least one is required):
+
+| Param    | Type     | Notes                                                     |
+|----------|----------|-----------------------------------------------------------|
+| `level`  | enum     | `DISTRICT \| UPAZILA \| UNION \| WARD \| VILLAGE`        |
+| `parent` | ObjectId | 24-char hex id of the parent area                         |
+
+Examples:
+
+```bash
+# All top-level districts
+curl 'http://localhost:5000/api/areas?level=DISTRICT'
+
+# All upazilas under a specific district
+curl 'http://localhost:5000/api/areas?level=UPAZILA&parent=<districtId>'
+
+# All children of a node regardless of level
+curl 'http://localhost:5000/api/areas?parent=<districtId>'
+```
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "areas": [
+      {
+        "id": "64a0...",
+        "country": "Bangladesh",
+        "level": "UPAZILA",
+        "name": "Dhaka North",
+        "parentId": "64a0..."
+      }
+    ],
+    "count": 3
+  },
+  "message": "Areas fetched"
+}
+```
+
+### Seeding the Bangladesh hierarchy
+
+After the database is reachable, populate the `areas` collection:
+
+```bash
+node scripts/seed-areas.js
+```
+
+The script is destructive: it wipes the `areas` collection and re-inserts
+the full hierarchy (64 districts + 3 upazilas per district + 2 unions per
+upazila + 2 wards per union + 2 villages per ward ≈ 2,944 nodes).
 
 ## MongoDB Connection (Module 0.4)
 
