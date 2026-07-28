@@ -1,16 +1,19 @@
 /**
- * AreaSelector — the three-in-one location picker (Module 2.2).
+ * AreaSelector — the location picker (Module 2.2, post-fix).
  *
- * Three input modes, all surfaces of the same `value`:
+ * Two input modes, both surfaces of the same `value`:
  *   - "By hierarchy" — five cascading <select> dropdowns that walk
  *     district → upazila → union → ward → village.
- *   - "Search address" — debounced Nominatim lookup.
- *   - "Pick on map" — Leaflet map with a draggable pin.
+ *   - "Pick on map" — Leaflet map with a draggable pin. A debounced
+ *     Nominatim search box sits ABOVE the map and helps the user
+ *     recenter on a known address; clicking a result drops the pin
+ *     there so the user can drag/refine it. The pin (not the search
+ *     result) is the source of truth for `lng/lat`.
  *
  * Output shape (passed to `onChange`):
  *   {
  *     areaId:    string | null,    // Deepest node selected via hierarchy
- *     lng:       number | null,    // [longitude, latitude] from map or search
+ *     lng:       number | null,    // [longitude, latitude] from map pin
  *     lat:       number | null,
  *     areaLabel: string | null,    // Human-readable summary "District > Upazila"
  *   }
@@ -22,7 +25,7 @@
  *
  * KEY DESIGN REMINDERS honored:
  *   - The map / search are user-initiated. No silent geolocation.
- *   - All three modes are independent — picking a pin doesn't reset
+ *   - The two modes are independent — picking a pin doesn't reset
  *     the dropdown chain and vice versa.
  */
 
@@ -40,9 +43,12 @@ import {
 
 const TABS = Object.freeze([
   { id: 'hierarchy', label: 'By hierarchy' },
-  { id: 'search', label: 'Search address' },
   { id: 'map', label: 'Pick on map' },
 ]);
+
+// When the user clicks a search result we center the map at this zoom
+// level so the marker drops over recognizable streets/buildings.
+const SEARCH_RESULT_ZOOM = 16;
 
 /**
  * @param {object}  props
@@ -50,9 +56,6 @@ const TABS = Object.freeze([
  * @param {number}  [props.initialLng]
  * @param {number}  [props.initialLat]
  * @param {string}  [props.initialAreaLabel]  Read-only hint shown on first paint
- *                                            (e.g. "Dhaka > Mirpur"). The
- *                                            component re-emits the chain
- *                                            it builds itself.
  * @param {boolean} [props.disabled=false]
  * @param {(value: {areaId, lng, lat, areaLabel}) => void} props.onChange
  */
@@ -101,6 +104,8 @@ export default function AreaSelector({
   const [pin, setPin] = useState(() => pointOrNull(initialLng, initialLat));
 
   // ── Search state ───────────────────────────────────────────────────────
+  // Lives on the map tab now. The map auto-pans when the user picks a
+  // result so they can refine the position with drag/click.
   const [searchQuery, setSearchQuery] = useState('');
   const search = useNominatimSearch(searchQuery);
 
@@ -133,23 +138,18 @@ export default function AreaSelector({
             disabled={disabled}
           />
         )}
-        {activeTab === 'search' && (
-          <SearchPanel
-            query={searchQuery}
-            onQueryChange={setSearchQuery}
-            results={search.results}
-            isLoading={search.isLoading}
-            error={search.error}
-            queryTooShort={search.queryTooShort}
-            onPick={(r) => {
-              setPin({ lng: r.lng, lat: r.lat });
-              setActiveTab('map');
-            }}
-            disabled={disabled}
-          />
-        )}
         {activeTab === 'map' && (
-          <MapPanel pin={pin} onChange={setPin} disabled={disabled} />
+          <MapPanel
+            pin={pin}
+            onChange={setPin}
+            disabled={disabled}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            searchResults={search.results}
+            searchIsLoading={search.isLoading}
+            searchError={search.error}
+            searchQueryTooShort={search.queryTooShort}
+          />
         )}
       </div>
 
@@ -220,6 +220,8 @@ function HierarchyPanel({ chain, onChange, disabled }) {
 }
 
 function LevelSelect({ level, parentId, value, onChange, enabled, disabled }) {
+  // `useChildren` now passes `enabled` straight through so the DISTRICT
+  // level (which has no parent) still fires its query.
   const query = useChildren({
     parentId,
     level: level.value,
@@ -269,17 +271,32 @@ function prevLabel(levelValue) {
   return AREA_LEVELS[idx - 1].label.toLowerCase();
 }
 
-// ── Search panel ───────────────────────────────────────────────────────────
-function SearchPanel({
-  query,
-  onQueryChange,
-  results,
-  isLoading,
-  error,
-  queryTooShort,
-  onPick,
+// ── Map panel (search box + map) ───────────────────────────────────────────
+function MapPanel({
+  pin,
+  onChange,
   disabled,
+  searchQuery,
+  onSearchQueryChange,
+  searchResults,
+  searchIsLoading,
+  searchError,
+  searchQueryTooShort,
 }) {
+  // The map's center is owned by the map instance; we keep a ref to the
+  // fly-to function exposed by MapController. When the user picks a
+  // search result, the map animates over to that lat/lng and drops the
+  // pin there so they can drag/refine it.
+  const flyToRef = useRef(null);
+
+  function handlePickResult(r) {
+    // Drop the pin at the search result, then ask the map to fly there.
+    onChange({ lng: r.lng, lat: r.lat });
+    if (flyToRef.current) {
+      flyToRef.current(r.lat, r.lng, SEARCH_RESULT_ZOOM);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div>
@@ -292,33 +309,34 @@ function SearchPanel({
         <input
           id="area-search"
           type="text"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
+          value={searchQuery}
+          onChange={(e) => onSearchQueryChange(e.target.value)}
           placeholder="E.g. Gulshan, Dhaka, 1212"
           disabled={disabled}
           className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-60"
         />
         <p className="mt-1 text-xs text-slate-500">
-          Powered by OpenStreetMap (Nominatim). Type 3+ characters.
+          Powered by OpenStreetMap (Nominatim). Type 3+ characters, then drag
+          the pin to set your exact location.
         </p>
       </div>
 
-      {queryTooShort && (
+      {searchQueryTooShort && (
         <p className="text-xs text-slate-500">Keep typing to search…</p>
       )}
-      {isLoading && <p className="text-xs text-slate-500">Searching…</p>}
-      {error && (
+      {searchIsLoading && <p className="text-xs text-slate-500">Searching…</p>}
+      {searchError && (
         <p role="alert" className="text-xs text-alert-700">
           Search failed. Check your connection and try again.
         </p>
       )}
-      {results.length > 0 && (
+      {searchResults.length > 0 && (
         <ul className="divide-y divide-slate-200 rounded-md border border-slate-200">
-          {results.map((r) => (
+          {searchResults.map((r) => (
             <li key={r.id}>
               <button
                 type="button"
-                onClick={() => onPick(r)}
+                onClick={() => handlePickResult(r)}
                 disabled={disabled}
                 className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
@@ -328,58 +346,76 @@ function SearchPanel({
           ))}
         </ul>
       )}
-      {!isLoading && !error && !queryTooShort && results.length === 0 && query.trim().length >= 3 && (
-        <p className="text-xs text-slate-500">No matches.</p>
-      )}
+      {!searchIsLoading &&
+        !searchError &&
+        !searchQueryTooShort &&
+        searchResults.length === 0 &&
+        searchQuery.trim().length >= 3 && (
+          <p className="text-xs text-slate-500">No matches.</p>
+        )}
+
+      <div className="space-y-2">
+        <p className="text-xs text-slate-600">
+          Click anywhere on the map or drag the pin to set your location.
+        </p>
+        <div className="h-64 overflow-hidden rounded-md border border-slate-200">
+          <MapContainer
+            center={pin ? { lat: pin.lat, lng: pin.lng } : DEFAULT_MAP_CENTER}
+            zoom={DEFAULT_MAP_ZOOM}
+            style={{ height: '100%', width: '100%' }}
+            scrollWheelZoom={true}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <MapController flyToRef={flyToRef} />
+            <ClickToMove onPick={onChange} disabled={disabled} />
+            {pin && (
+              <Marker
+                position={[pin.lat, pin.lng]}
+                draggable={!disabled}
+                eventHandlers={{
+                  dragend: (e) => {
+                    const m = e.target;
+                    const ll = m.getLatLng();
+                    onChange({ lng: ll.lng, lat: ll.lat });
+                  },
+                }}
+              />
+            )}
+          </MapContainer>
+        </div>
+        <p className="text-xs text-slate-500">
+          {pin
+            ? `Pin at ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`
+            : 'No pin set yet.'}
+        </p>
+      </div>
     </div>
   );
 }
 
-// ── Map panel ──────────────────────────────────────────────────────────────
-function MapPanel({ pin, onChange, disabled }) {
-  const center = pin
-    ? { lat: pin.lat, lng: pin.lng }
-    : DEFAULT_MAP_CENTER;
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-slate-600">
-        Click anywhere on the map or drag the pin to set your location.
-      </p>
-      <div className="h-64 overflow-hidden rounded-md border border-slate-200">
-        <MapContainer
-          center={center}
-          zoom={DEFAULT_MAP_ZOOM}
-          style={{ height: '100%', width: '100%' }}
-          scrollWheelZoom={true}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <ClickToMove onPick={onChange} disabled={disabled} />
-          {pin && (
-            <Marker
-              position={[pin.lat, pin.lng]}
-              draggable={!disabled}
-              eventHandlers={{
-                dragend: (e) => {
-                  const m = e.target;
-                  const ll = m.getLatLng();
-                  onChange({ lng: ll.lng, lat: ll.lat });
-                },
-              }}
-            />
-          )}
-        </MapContainer>
-      </div>
-      <p className="text-xs text-slate-500">
-        {pin
-          ? `Pin at ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`
-          : 'No pin set yet.'}
-      </p>
-    </div>
-  );
+/**
+ * Bridge between react-leaflet and our parent — exposes a `flyTo`
+ * function the parent can call to recenter the map (e.g. after the
+ * user picks a search result).
+ */
+function MapController({ flyToRef }) {
+  const map = useMapEvents({});
+  useEffect(() => {
+    flyToRef.current = (lat, lng, zoom) => {
+      try {
+        map.flyTo([lat, lng], zoom || map.getZoom(), { duration: 0.6 });
+      } catch {
+        /* map not ready — ignore */
+      }
+    };
+    return () => {
+      flyToRef.current = null;
+    };
+  }, [map, flyToRef]);
+  return null;
 }
 
 function ClickToMove({ onPick, disabled }) {

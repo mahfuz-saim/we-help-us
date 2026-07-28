@@ -5,17 +5,22 @@
  *   1. Vite production build succeeds with the AreaSelector wired into
  *      ProfilePage via react-hook-form Controller.
  *   2. Static guards:
- *      - Bundle contains the three tab labels ("By hierarchy",
- *        "Search address", "Pick on map") so the UI is reachable.
- *      - AreaSelector emits areaId/lng/lat/areaLabel via onChange
- *        (the wiring into the form).
- *      - ProfilePage no longer has raw lng/lat inputs (the
- *        interactive picker replaced them).
+ *      - Bundle contains the two tab labels ("By hierarchy", "Pick on map")
+ *        so the UI is reachable.
+ *      - The "Search address" tab is GONE — search now lives inside the
+ *        map tab so users can drop a search result and then refine the
+ *        pin via drag/click.
+ *      - AreaSelector emits areaId/lng/lat/areaLabel via onChange.
+ *      - ProfilePage no longer has raw lng/lat inputs (the interactive
+ *        picker replaced them).
  *      - ProfilePage no longer claims the selector "lands in 2.2".
  *      - Leaflet CSS is imported in index.css so the map renders.
  *      - useAreas + useNominatimSearch hooks exist with the right keys.
  *      - AREA_LEVELS / DEFAULT_MAP_CENTER constants are present.
  *      - ProfilePage sends areaId + GeoJSON Point on save.
+ *      - **Regression guard for the "District dropdown is empty" bug**:
+ *        useChildren() must NOT gate the query on `parentId` being
+ *        truthy — the DISTRICT level intentionally has no parent.
  *   3. Dev server boot + mock backend with /api/areas (cascading
  *      queries) so the dev server boot still works and the proxy
  *      serves the area tree.
@@ -262,10 +267,11 @@ async function run() {
       .join('\n');
     // Tab labels survive minification (string literals).
     assert(/By hierarchy/.test(allJs), 'bundle contains "By hierarchy" tab label');
-    assert(/Search address/.test(allJs), 'bundle contains "Search address" tab label');
     assert(/Pick on map/.test(allJs), 'bundle contains "Pick on map" tab label');
     // OpenStreetMap attribution is rendered by the TileLayer.
     assert(/OpenStreetMap/.test(allJs), 'bundle references OpenStreetMap attribution');
+    // The search input now lives on the map tab.
+    assert(/Search by name or address/.test(allJs), 'bundle contains the search input label');
     // The ProfilePage keeps its stable copy.
     assert(/Save changes/.test(allJs), 'bundle contains "Save changes"');
   }
@@ -282,13 +288,32 @@ async function run() {
       /export default function AreaSelector/.test(selectorSrc),
       'AreaSelector.jsx has a default export'
     );
-    // The three tabs must be defined.
+    // The two tabs are defined.
     assert(
-      /hierarchy/.test(selectorSrc) &&
-        /search/.test(selectorSrc) &&
-        /map/.test(selectorSrc),
-      'AreaSelector defines hierarchy / search / map tabs'
+      /hierarchy/.test(selectorSrc) && /map/.test(selectorSrc),
+      'AreaSelector defines hierarchy + map tabs'
     );
+    // There is NO "search" tab — search now lives inside the map tab.
+    // The TABS array should have exactly two entries.
+    const tabsMatch = selectorSrc.match(/const TABS = Object\.freeze\(\[\s*([\s\S]*?)\]\);/);
+    assert(tabsMatch, 'AreaSelector defines a TABS array');
+    if (tabsMatch) {
+      const tabsBody = tabsMatch[1];
+      const tabCount = (tabsBody.match(/\{\s*id:/g) || []).length;
+      assert(tabCount === 2, `TABS array has 2 entries (got ${tabCount})`);
+      assert(
+        /id:\s*['"]hierarchy['"]/.test(tabsBody),
+        'TABS contains hierarchy tab'
+      );
+      assert(
+        /id:\s*['"]map['"]/.test(tabsBody),
+        'TABS contains map tab'
+      );
+      assert(
+        !/id:\s*['"]search['"]/.test(tabsBody),
+        'TABS does NOT contain a separate search tab'
+      );
+    }
     // Cascading via useChildren.
     assert(
       /useChildren/.test(selectorSrc),
@@ -326,6 +351,13 @@ async function run() {
       !/navigator\.geolocation/.test(selectorSrc),
       'AreaSelector does NOT call navigator.geolocation silently'
     );
+    // Search lives on the map tab — MapPanel accepts search props.
+    assert(
+      /searchQuery/.test(selectorSrc) &&
+        /onSearchQueryChange/.test(selectorSrc) &&
+        /searchResults/.test(selectorSrc),
+      'AreaSelector passes search state into MapPanel'
+    );
 
     // ── Hooks ─────────────────────────────────────────────────────────────
     const areasHookSrc = fs.readFileSync(
@@ -341,6 +373,37 @@ async function run() {
     assert(
       /\/areas/.test(areasHookSrc),
       'useAreas calls the /areas endpoint'
+    );
+
+    // ── REGRESSION GUARD for the District-empty bug ───────────────────────
+    // The bug: useChildren({parentId: null, level: 'DISTRICT'}) used to
+    // gate the query on `Boolean(parentId)` which is false for the
+    // district level → no fetch fired → dropdown showed "Select district"
+    // with no options. The fix: useChildren passes `enabled` through.
+    // We assert (a) `useChildren` does NOT call `Boolean(parentId)`,
+    // and (b) `useAreas` allows the query to fire when level is set
+    // even without parentId.
+    const useChildrenBody = (function () {
+      const m = areasHookSrc.match(
+        /export function useChildren\(\{[^}]*\}\s*=\s*\{\}\)\s*\{([\s\S]*?)\n\}/
+      );
+      return m ? m[1] : '';
+    })();
+    assert(useChildrenBody.length > 0, 'useChildren function body parsed');
+    assert(
+      !/Boolean\s*\(\s*parentId\s*\)/.test(useChildrenBody),
+      'useChildren does NOT gate on Boolean(parentId) — would suppress DISTRICT fetch'
+    );
+    const useAreasBody = (function () {
+      const m = areasHookSrc.match(
+        /export function useAreas\(\{[^}]*\}\s*=\s*\{\}\)\s*\{([\s\S]*?)\n\}/
+      );
+      return m ? m[1] : '';
+    })();
+    assert(useAreasBody.length > 0, 'useAreas function body parsed');
+    assert(
+      /hasLevel\s*\|\|\s*hasParent/.test(useAreasBody),
+      'useAreas fires when level is set even if parentId is missing'
     );
 
     const nominatimSrc = fs.readFileSync(

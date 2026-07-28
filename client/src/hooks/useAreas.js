@@ -66,15 +66,16 @@ export function useDistricts({ enabled = true } = {}) {
 /**
  * Convenience wrapper: list children of a specific parent node.
  *
+ * IMPORTANT: `parentId` is OPTIONAL here. The hook passes `enabled`
+ * through to `useAreas` instead of gating on `parentId` being truthy,
+ * so the caller can ask for "all districts" (parentId null + level
+ * DISTRICT) the same way they ask for "all children of X".
+ *
  * @param {object} opts
  * @param {string} [opts.parentId]
  * @param {string} [opts.level] - optional, used to filter children by level
  * @param {boolean} [opts.enabled=true]
  */
 export function useChildren({ parentId, level, enabled = true } = {}) {
-  return useAreas({
-    parentId,
-    level,
-    enabled: enabled && Boolean(parentId),
-  });
+  return useAreas({ parentId, level, enabled });
 }
