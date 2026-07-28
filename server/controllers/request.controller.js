@@ -62,6 +62,7 @@ const { ok, created } = require('../utils/apiResponse');
 const ResourceRequest = require('../models/ResourceRequest');
 const Resource = require('../models/Resource');
 const User = require('../models/User');
+const notificationTriggers = require('../services/notificationTriggers');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -304,6 +305,13 @@ async function createRequest(req, res, next) {
     });
     await doc.save();
 
+    // Module 7.3 — fire-and-forget fan-out to owner + in-area moderators.
+    notificationTriggers.onRequestCreated({
+      request: doc,
+      resource,
+      actor: req.user,
+    });
+
     return created(res, { request: publicRequest(doc) }, 'Request created');
   } catch (err) {
     next(err);
@@ -536,6 +544,8 @@ async function approveRequest(req, res, next) {
 
     await Promise.all([doc.save(), resource.save()]);
 
+    notificationTriggers.onRequestApproved({ request: doc, actor: req.user });
+
     return ok(res, { request: publicRequest(doc) }, 'Request approved');
   } catch (err) {
     next(err);
@@ -606,6 +616,8 @@ async function rejectRequest(req, res, next) {
     }
     await Promise.all(tasks);
 
+    notificationTriggers.onRequestRejected({ request: doc, actor: req.user });
+
     return ok(res, { request: publicRequest(doc) }, 'Request rejected');
   } catch (err) {
     next(err);
@@ -654,6 +666,8 @@ async function collectRequest(req, res, next) {
     resource.status = Resource.STATUS.IN_USE;
 
     await Promise.all([doc.save(), resource.save()]);
+
+    notificationTriggers.onRequestCollected({ request: doc, actor: req.user });
 
     // Reload with populate so the response can include contact info.
     const populated = await loadRequestPopulated(doc._id);
@@ -709,6 +723,8 @@ async function returnRequest(req, res, next) {
     doc.returnedAt = new Date();
     await doc.save();
 
+    notificationTriggers.onRequestReturned({ request: doc, actor: req.user });
+
     return ok(res, { request: publicRequest(doc) }, 'Request returned');
   } catch (err) {
     next(err);
@@ -751,6 +767,8 @@ async function completeRequest(req, res, next) {
     resource.status = Resource.STATUS.AVAILABLE;
 
     await resource.save();
+
+    notificationTriggers.onRequestCompleted({ request: doc, actor: req.user });
 
     return ok(
       res,

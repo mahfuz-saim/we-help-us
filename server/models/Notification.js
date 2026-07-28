@@ -43,6 +43,11 @@ const NOTIFICATION_TYPES = Object.freeze({
   REQUEST_COLLECTED: 'REQUEST_COLLECTED',
   REQUEST_RETURNED: 'REQUEST_RETURNED',
   REQUEST_CANCELLED: 'REQUEST_CANCELLED',
+  // Module 7.3 — owner confirmed the resource is back. Distinct from
+  // REQUEST_RETURNED (which fires when the volunteer marks the return)
+  // so the volunteer sees both events as two separate rows when they
+  // happen.
+  REQUEST_COMPLETED: 'REQUEST_COMPLETED',
   VOLUNTEER_VERIFIED: 'VOLUNTEER_VERIFIED',
   EMERGENCY_MODE: 'EMERGENCY_MODE',
   GENERAL: 'GENERAL',
