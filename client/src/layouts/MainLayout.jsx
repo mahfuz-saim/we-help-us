@@ -71,12 +71,10 @@ export default function MainLayout() {
                   </NavLink>
                 )}
                 {(user.role === 'MODERATOR' || user.role === 'ADMIN') && (
-                  <NavLink
-                    to="/moderator"
-                    className={({ isActive }) => navLinkClass(isActive)}
-                  >
-                    Moderation
-                  </NavLink>
+                  <>
+                    <NavLink to="/moderator" className={({ isActive }) => navLinkClass(isActive)}>Moderation</NavLink>
+                    <NavLink to="/analytics" className={({ isActive }) => navLinkClass(isActive)}>Analytics</NavLink>
+                  </>
                 )}
                 {/* Notification bell (Module 7.5) — renders only for
                     authenticated users; the bell is its own dropdown

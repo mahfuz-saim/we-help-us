@@ -15,6 +15,7 @@ import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
 import VolunteerDashboardPage from './pages/volunteer/VolunteerDashboardPage.jsx';
 import ModeratorDashboardPage from './pages/moderator/ModeratorDashboardPage.jsx';
+import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
 /**
@@ -76,6 +77,13 @@ export default function App() {
           <Route
             path="moderator"
             element={<ModeratorDashboardPage />}
+          />
+          {/* Analytics dashboard (Module 8.2) — same role gate as
+              the moderator dashboard. Read-only reporting surface
+              over the 8.1 endpoints. */}
+          <Route
+            path="analytics"
+            element={<AnalyticsPage />}
           />
         </Route>
 
