@@ -35,9 +35,14 @@ process.env.NODE_ENV = 'test';
 process.env.DISABLE_RATE_LIMIT = '1';
 process.env.PORT = '0';
 // Ensure CLOUDINARY_* are NOT set — that path is what we test for the 503.
-delete process.env.CLOUDINARY_CLOUD_NAME;
-delete process.env.CLOUDINARY_API_KEY;
-delete process.env.CLOUDINARY_API_SECRET;
+// We use empty strings rather than `delete` because dotenv.config() in
+// app.js re-injects values from .env for unset keys — and an "unset"
+// key that's later populated by dotenv would silently make the test
+// think Cloudinary is configured. Empty string survives dotenv's
+// "don't override existing vars" rule.
+process.env.CLOUDINARY_CLOUD_NAME = '';
+process.env.CLOUDINARY_API_KEY = '';
+process.env.CLOUDINARY_API_SECRET = '';
 
 const { createApp } = require('../app');
 const User = require('../models/User');
