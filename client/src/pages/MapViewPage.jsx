@@ -48,7 +48,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from 'react-leaflet';
 
 import '../utils/leaflet-icons';
 import {
@@ -241,14 +241,14 @@ function FilterBar({ draft, setDraft, onApply, onClear, isFetching }) {
       <div className="flex gap-2">
         <button
           type="submit"
-          className="rounded-md bg-alert-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800"
+          className="rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Apply filters
         </button>
         <button
           type="button"
           onClick={onClear}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          className="rounded-md border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
         >
           Clear
         </button>
@@ -276,6 +276,7 @@ function ResourceMap({ resources }) {
         className="whu-map"
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
+        zoomControl={false}
         scrollWheelZoom
       >
         <TileLayer
@@ -283,6 +284,11 @@ function ResourceMap({ resources }) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapFitter resources={resources} />
+        {/* Module 9.1 — move the zoom control to the bottom-right so it
+            doesn't collide with the legend on small viewports. The
+            .whu-zoom-* CSS in index.css forces both buttons to the
+            44×44 iOS tap-target size. */}
+        <ZoomControl position="bottomright" />
         <Legend />
         {resources.map((r) => (
           <ResourceMarker key={r.id} resource={r} />
@@ -346,7 +352,7 @@ function ResourceMarker({ resource }) {
           </div>
           <Link
             to={`/resources/${resource.id}`}
-            className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-alert-800"
+            className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-xs font-semibold text-white hover:bg-alert-800 min-h-[44px]"
           >
             Open details
           </Link>

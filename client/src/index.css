@@ -106,13 +106,14 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 9999px;
-  /* `ring` utilities (Tailwind v4) use --default-ring-width which is
-     3px by default — perfect for the colored ring effect. */
+  /* Module 9.1 — bumped the ring from 3px to 4px so the larger pin
+     keeps a visible outline. The ring width is `box-shadow` driven
+     (Leaflet DivIcons own their backgrounds). */
   box-shadow:
-    0 0 0 3px currentColor,
+    0 0 0 4px currentColor,
     0 2px 4px rgba(0, 0, 0, 0.15);
   /* The pin's text color is the colored ring. We rely on Tailwind's
      `text-<color>-<shade>` for the emoji fill, but the ring itself is
@@ -180,4 +181,24 @@ body,
   font-size: 0.75rem;
   line-height: 1.4;
   max-width: 12rem;
+}
+
+/* Module 9.1 — touch-friendly Leaflet zoom controls.
+   Leaflet's stock controls are 30×30 px each (below the 44 px iOS
+   tap-target minimum). We bump them to 44 px and add rounded corners
+   to match the rest of the design system. */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  font-size: 22px;
+  border-radius: 6px;
+}
+.leaflet-bar a {
+  margin-bottom: 6px;
+}
+.leaflet-bar {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
 }

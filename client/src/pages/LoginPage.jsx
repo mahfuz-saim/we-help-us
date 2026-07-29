@@ -115,7 +115,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => switchKind(k)}
               className={
-                'rounded-md px-3 py-1 font-medium transition ' +
+                'rounded-md px-3 py-2.5 font-medium transition min-h-[44px] ' +
                 (identifierKind === k
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700')
@@ -195,7 +195,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+                className="absolute inset-y-0 right-0 flex min-h-[44px] items-center px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? 'Hide' : 'Show'}
@@ -206,7 +206,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-md bg-alert-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md bg-alert-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
           >
             {submitting ? 'Logging in…' : 'Log in'}
           </button>
@@ -230,7 +230,7 @@ export default function LoginPage() {
 
 function inputClass(hasError) {
   return [
-    'block w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm',
+    'block w-full rounded-md border bg-white px-3 py-2.5 text-sm shadow-sm min-h-[44px]',
     'placeholder:text-slate-400 focus:outline-none focus:ring-2',
     hasError
       ? 'border-alert-300 focus:border-alert-500 focus:ring-alert-200'

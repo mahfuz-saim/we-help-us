@@ -304,7 +304,7 @@ function RequestRow({
           {r.resourceId && (
             <Link
               to={`/resources/${r.resourceId}`}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
             >
               View resource
             </Link>
@@ -379,7 +379,7 @@ function ActionRow({
             type="button"
             onClick={onCollect}
             disabled={collectPending}
-            className="rounded-md bg-alert-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
           >
             {collectPending ? 'Marking…' : 'I picked it up'}
           </button>
@@ -396,7 +396,7 @@ function ActionRow({
             type="button"
             onClick={onReturn}
             disabled={returnPending}
-            className="rounded-md bg-alert-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
           >
             {returnPending ? 'Marking…' : "I've returned it"}
           </button>
@@ -556,7 +556,7 @@ function EmptyState({ hasFilter, onClear }) {
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         <Link
           to="/resources"
-          className="rounded-md bg-alert-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-alert-800"
+          className="rounded-md bg-alert-700 px-3 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Browse resources
         </Link>
@@ -564,7 +564,7 @@ function EmptyState({ hasFilter, onClear }) {
           <button
             type="button"
             onClick={onClear}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
           >
             Clear filter
           </button>

@@ -519,7 +519,7 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={saving || !isDirty}
-              className="rounded-md bg-alert-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-alert-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
             >
               {saving ? 'Saving…' : 'Save changes'}
             </button>
@@ -527,7 +527,7 @@ export default function ProfilePage() {
               type="button"
               disabled={saving || !isDirty}
               onClick={() => reset()}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
             >
               Reset
             </button>
@@ -568,7 +568,7 @@ export default function ProfilePage() {
                 type="button"
                 onClick={onUploadAvatar}
                 disabled={!avatarFile || uploadingAvatar}
-                className="rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
               >
                 {uploadingAvatar ? 'Uploading…' : 'Upload avatar'}
               </button>
@@ -581,7 +581,7 @@ export default function ProfilePage() {
                     setAvatarError(null);
                     if (fileRef.current) fileRef.current.value = '';
                   }}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  className="rounded-md border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
                 >
                   Cancel
                 </button>
@@ -661,7 +661,7 @@ function Field({ label, htmlFor, error, hint, inline, children }) {
 
 function inputClass(hasError) {
   return [
-    'block w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm',
+    'block w-full rounded-md border bg-white px-3 py-2.5 text-sm shadow-sm min-h-[44px]',
     'placeholder:text-slate-400 focus:outline-none focus:ring-2',
     hasError
       ? 'border-alert-300 focus:border-alert-500 focus:ring-alert-200'

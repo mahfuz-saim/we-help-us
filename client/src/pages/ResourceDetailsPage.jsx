@@ -409,7 +409,7 @@ function ActionRow({ resource, user }) {
         </p>
         <Link
           to={`/owner/resources`}
-          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800"
+          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Open dashboard
         </Link>
@@ -450,7 +450,7 @@ function VolunteerRequestCTA() {
         type="button"
         disabled
         title="Request workflow ships in Phase 5"
-        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2 text-sm font-semibold text-white opacity-60 shadow-sm"
+        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white opacity-60 shadow-sm min-h-[44px]"
       >
         Request this resource
       </button>

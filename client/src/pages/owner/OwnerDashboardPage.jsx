@@ -240,7 +240,7 @@ function Header({ user, onRefresh, activeCount = 0, activeCountLoading = false }
         <div className="mt-2">
           <Link
             to="/owner/requests"
-            className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 min-h-[44px]"
           >
             <span>Incoming requests</span>
             <span
@@ -265,13 +265,13 @@ function Header({ user, onRefresh, activeCount = 0, activeCountLoading = false }
         <button
           type="button"
           onClick={onRefresh}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          className="rounded-md border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
         >
           Refresh
         </button>
         <Link
           to="/owner/resources/new"
-          className="rounded-md bg-alert-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800"
+          className="rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           + Register new
         </Link>
@@ -379,7 +379,7 @@ function ResourceCard({ resource, onToggle, onDelete, toggling, deleting }) {
               onClick={onToggle}
               disabled={toggling}
               className={
-                'rounded-md px-3 py-1.5 text-xs font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ' +
+                'rounded-md px-3 py-2.5 text-xs font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px] ' +
                 (resource.status === RESOURCE_STATUS.AVAILABLE.value
                   ? 'border border-caution-300 bg-caution-50 text-caution-800 hover:bg-caution-100'
                   : 'border border-safe-300 bg-safe-50 text-safe-800 hover:bg-safe-100')
@@ -393,7 +393,7 @@ function ResourceCard({ resource, onToggle, onDelete, toggling, deleting }) {
             </button>
           ) : (
             <span
-              className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500"
+              className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 min-h-[44px]"
               title="Status is managed by the request lifecycle (Module 5.2)"
             >
               Managed by requests
@@ -414,7 +414,7 @@ function ResourceCard({ resource, onToggle, onDelete, toggling, deleting }) {
                   icon: '🛠️',
                 });
               }}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
             >
               Edit
             </Link>
@@ -422,7 +422,7 @@ function ResourceCard({ resource, onToggle, onDelete, toggling, deleting }) {
               type="button"
               onClick={onDelete}
               disabled={deleting}
-              className="rounded-md border border-alert-300 px-3 py-1.5 text-xs font-medium text-alert-700 hover:bg-alert-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-alert-300 px-3 py-2.5 text-xs font-medium text-alert-700 hover:bg-alert-50 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
             >
               Delete
             </button>
@@ -473,14 +473,14 @@ function EmptyState({ hasFilter, onClearFilter }) {
           <button
             type="button"
             onClick={onClearFilter}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-md border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
           >
             Clear filter
           </button>
         )}
         <Link
           to="/owner/resources/new"
-          className="rounded-md bg-alert-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800"
+          className="rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Register your first resource
         </Link>

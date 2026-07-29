@@ -248,7 +248,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-md bg-alert-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md bg-alert-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
           >
             {submitting ? 'Creating account…' : 'Create account'}
           </button>
@@ -278,7 +278,7 @@ export default function RegisterPage() {
 
 function inputClass(hasError) {
   return [
-    'block w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm',
+    'block w-full rounded-md border bg-white px-3 py-2.5 text-sm shadow-sm min-h-[44px]',
     'placeholder:text-slate-400 focus:outline-none focus:ring-2',
     hasError
       ? 'border-alert-300 focus:border-alert-500 focus:ring-alert-200'

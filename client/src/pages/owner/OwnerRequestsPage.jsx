@@ -373,7 +373,7 @@ function RequestRow({
           {r.resourceId && (
             <Link
               to={`/resources/${r.resourceId}`}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
             >
               View resource
             </Link>
@@ -459,7 +459,7 @@ function ActionRow({
               type="button"
               onClick={onApprove}
               disabled={anyPending}
-              className="rounded-md bg-safe-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
             >
               {approvePending ? 'Approving…' : 'Approve'}
             </button>
@@ -469,7 +469,7 @@ function ActionRow({
               type="button"
               onClick={onReject}
               disabled={anyPending}
-              className="rounded-md border border-alert-300 bg-white px-3 py-1.5 text-sm font-medium text-alert-700 hover:bg-alert-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-alert-300 bg-white px-3 py-2.5 text-sm font-medium text-alert-700 hover:bg-alert-50 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
             >
               {rejectPending ? 'Rejecting…' : 'Reject'}
             </button>
@@ -487,7 +487,7 @@ function ActionRow({
             type="button"
             onClick={onComplete}
             disabled={anyPending}
-            className="rounded-md bg-safe-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
           >
             {completePending ? 'Confirming…' : 'Confirm return'}
           </button>
@@ -683,7 +683,7 @@ function EmptyState({ hasFilter, onClear }) {
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         <Link
           to="/owner/resources"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+          className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
         >
           Open my resources
         </Link>
@@ -691,7 +691,7 @@ function EmptyState({ hasFilter, onClear }) {
           <button
             type="button"
             onClick={onClear}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-md border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
           >
             Clear filter
           </button>
