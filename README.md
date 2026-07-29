@@ -93,4 +93,4 @@ This is a hard privacy/safety rule of the platform.
 
 ## License
 
-Internal / TBD.
+MIT License
