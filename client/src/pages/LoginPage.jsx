@@ -37,6 +37,17 @@ export default function LoginPage() {
   const location = useLocation();
   const { login } = useAuth();
 
+  // Role-aware default landing page. Preserved across the gated-redirect
+  // behavior below: if the user came here from a protected route
+  // (`state.from`), we honor that — role default only applies when
+  // they opened the login page directly.
+  function defaultPathForRole(role) {
+    if (role === 'OWNER') return '/owner/resources';
+    if (role === 'VOLUNTEER') return '/volunteer/requests';
+    if (role === 'MODERATOR' || role === 'ADMIN') return '/moderator';
+    return '/';
+  }
+
   const [identifierKind, setIdentifierKind] = useState('email'); // 'email' | 'phone'
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState(null);
@@ -51,7 +62,7 @@ export default function LoginPage() {
     watch,
   } = useForm({ mode: 'onTouched', defaultValues: { identifier: '', password: '' } });
 
-  const redirectTo = (location.state && location.state.from) || '/';
+  const fromState = (location.state && location.state.from) || null;
 
   function switchKind(next) {
     if (next === identifierKind) return;
@@ -72,7 +83,11 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      await login(payload);
+      const loggedInUser = await login(payload);
+      // Resolve landing path: if the user was bounced here from a
+      // protected route (`state.from`), honor that. Otherwise route to
+      // a role-aware default so each persona lands on its dashboard.
+      const redirectTo = fromState || defaultPathForRole(loggedInUser?.role);
       toast.success('Welcome back');
       navigate(redirectTo, { replace: true });
     } catch (err) {

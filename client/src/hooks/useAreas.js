@@ -79,3 +79,37 @@ export function useDistricts({ enabled = true } = {}) {
 export function useChildren({ parentId, level, enabled = true } = {}) {
   return useAreas({ parentId, level, enabled });
 }
+
+/**
+ * Resolve a single area id to its full ancestor chain (root → leaf).
+ * Used by the profile page so a stored `areaId` can be displayed as a
+ * hierarchy label even when the picker is in read-only mode.
+ *
+ * @param {object}  [opts]
+ * @param {string}  [opts.areaId]   - 24-char ObjectId hex. Query is
+ *                                    disabled when null/undefined.
+ * @param {boolean} [opts.enabled=true]
+ * @returns UseQueryResult<{data: {area, chain}}>
+ *
+ * The result `chain` is an array of `{ id, level, name }` from root
+ * to leaf — e.g. for a VILLAGE id it looks like:
+ *   [
+ *     { level: 'DISTRICT', name: 'Dhaka' },
+ *     { level: 'UPAZILA',  name: 'Gulshan' },
+ *     { level: 'UNION',    name: '...' },
+ *     ...
+ *     { level: 'VILLAGE',  name: '...' }, // leaf — matches `area`
+ *   ]
+ */
+export function useAreaChain({ areaId, enabled = true } = {}) {
+  const ok = enabled && typeof areaId === 'string' && areaId.length > 0;
+  return useQuery({
+    queryKey: ['area-chain', areaId || null],
+    enabled: ok,
+    staleTime: FIVE_MINUTES,
+    queryFn: async () => {
+      const { data } = await api.get(`/areas/${encodeURIComponent(areaId)}`);
+      return data?.data || { area: null, chain: [] };
+    },
+  });
+}

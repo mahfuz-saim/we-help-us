@@ -18,6 +18,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { protect, authorize } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { createPrivilegedUserSchema } = require('../validators/auth.validators');
+const { moderatorsQuerySchema, volunteersAdminQuerySchema } = require('../validators/admin.validators');
 const adminCtrl = require('../controllers/admin.controller');
 
 const router = express.Router();
@@ -28,6 +29,22 @@ router.post(
   '/create-privileged-user',
   validate(createPrivilegedUserSchema),
   asyncHandler(adminCtrl.createPrivilegedUser)
+);
+
+// GET /api/admin/moderators — global moderator list for the admin UI.
+router.get(
+  '/moderators',
+  validate(moderatorsQuerySchema, 'query'),
+  asyncHandler(adminCtrl.listModerators)
+);
+
+// GET /api/admin/volunteers — global volunteer directory with
+// optional areaId / isVerified filters. Powers the admin panel's
+// "Volunteers" tab.
+router.get(
+  '/volunteers',
+  validate(volunteersAdminQuerySchema, 'query'),
+  asyncHandler(adminCtrl.listVolunteers)
 );
 
 module.exports = router;

@@ -16,7 +16,10 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
 const { validate } = require('../middlewares/validate');
-const { listAreasQuerySchema } = require('../validators/area.validators');
+const {
+  listAreasQuerySchema,
+  getAreaByIdParamsSchema,
+} = require('../validators/area.validators');
 const areaCtrl = require('../controllers/area.controller');
 
 const router = express.Router();
@@ -26,6 +29,15 @@ router.get(
   '/',
   validate(listAreasQuerySchema, 'query'),
   asyncHandler(areaCtrl.listAreas)
+);
+
+// GET /api/areas/:id — resolve a single area id to its full ancestor
+// chain. Used by the profile page to render a hierarchy label for a
+// stored `areaId` even when the picker is in read-only mode.
+router.get(
+  '/:id',
+  validate(getAreaByIdParamsSchema, 'params'),
+  asyncHandler(areaCtrl.getAreaChain)
 );
 
 module.exports = router;

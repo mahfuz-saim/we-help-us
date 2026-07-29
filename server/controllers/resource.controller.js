@@ -124,6 +124,26 @@ async function createResource(req, res, next) {
     }
 
     // Build the doc. `ownerId` comes from req.user, never from the body.
+    //
+    // `location` may arrive either as a parsed object (PATCH / JSON body)
+    // or as a JSON-stringified multipart part (POST / multipart). We
+    // normalize here so the rest of the function only deals with the
+    // canonical {type, coordinates} shape. Bad payloads are dropped to
+    // `undefined` (the schema validator is the source of truth for the
+    // 400 response).
+    const rawLocation = (() => {
+      const v = req.body.location;
+      if (v == null || v === '') return null;
+      if (typeof v === 'string') {
+        try {
+          return JSON.parse(v);
+        } catch {
+          return null;
+        }
+      }
+      return v;
+    })();
+
     const doc = new Resource({
       ownerId: req.user._id,
       category: req.body.category,
@@ -135,10 +155,10 @@ async function createResource(req, res, next) {
       status: req.body.status,
       areaId: req.body.areaId || null,
       location:
-        req.body.location && Array.isArray(req.body.location.coordinates)
+        rawLocation && Array.isArray(rawLocation.coordinates)
           ? {
               type: 'Point',
-              coordinates: req.body.location.coordinates,
+              coordinates: rawLocation.coordinates,
             }
           : undefined,
     });

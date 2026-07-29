@@ -282,14 +282,26 @@ async function run() {
       /Request this resource/.test(src),
       'page renders the "Request this resource" button (volunteer-only)'
     );
-    // The button is disabled until Module 5.2 wires the API.
+    // Module 5.2 wires the request lifecycle — the button is now live
+    // and only disabled when the resource is not AVAILABLE (or the
+    // volunteer is not verified). The CTA must not be pinned to a
+    // 'ships in Phase 5' copy.
     assert(
-      /disabled(?:\s|\}|\s\})/.test(src),
-      'page disables the Request button until 5.2 wires the API'
+      !/Request workflow ships in Phase 5/.test(src),
+      'page no longer advertises the request CTA as a Phase 5 placeholder'
     );
     assert(
-      /Phase 5|Module 5\.2/.test(src),
-      'page explains the disabled state (Phase 5 / Module 5.2)'
+      /isVerified\s*===\s*true/.test(src) || /isVerified\s*===\s*true/.test(src),
+      'page recognises the verified-volunteer gate (user.isVerified)'
+    );
+    assert(
+      /['"`]AVAILABLE['"`]/.test(src),
+      'page checks resource.status === AVAILABLE before letting the request fire'
+    );
+    // The hook used to wire the request is exported from useMyRequests.
+    assert(
+      /useCreateRequest\s*\(/.test(src),
+      'page calls useCreateRequest to POST /api/requests'
     );
     // Owner-of-resource branch exists.
     assert(

@@ -29,13 +29,45 @@ const Resource = require('../models/Resource');
 // GeoJSON Point — same shape as User/Resource. We deliberately don't set
 // a default on `type` to avoid the 2dsphere-rejection trap documented in
 // models/User.js.
+//
+// Wire-format note: the create endpoint accepts multipart/form-data so
+// that owners can upload photos in the same request. multer parses every
+// textual part as a string, so `location` arrives as either:
+//
+//   • a JSON string like `{"type":"Point","coordinates":[lng,lat]}`
+//     when the frontend sends it via FormData.append('location', JSON.stringify(...))
+//   • a plain string of just digits like "123.45" if a sloppy caller
+//     flattened the object
+//
+// To keep the schema permissive without dropping validation, we accept
+// either the parsed object OR a JSON string we can parse. The PATCH
+// endpoint uses JSON body (Express.json()) so it always arrives as a
+// parsed object — the union covers both shapes uniformly.
+const locationObjectSchema = z.object({
+  type: z.literal('Point'),
+  coordinates: z
+    .tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])
+    .or(z.array(z.number()).length(2)),
+});
+
 const locationSchema = z
-  .object({
-    type: z.literal('Point'),
-    coordinates: z
-      .tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])
-      .or(z.array(z.number()).length(2)),
-  })
+  .union([
+    locationObjectSchema,
+    z
+      .string()
+      .transform((s, ctx) => {
+        try {
+          return JSON.parse(s);
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'location must be a JSON-encoded GeoJSON Point',
+          });
+          return z.NEVER;
+        }
+      })
+      .pipe(locationObjectSchema),
+  ])
   .optional();
 
 // The textual fields a resource needs at creation time. `photos` are
@@ -57,7 +89,7 @@ const createResourceFields = {
     .min(10, 'description must be at least 10 characters')
     .max(2000, 'description must be at most 2000 characters'),
   capacity: z
-    .number()
+    .coerce.number()
     .int('capacity must be an integer')
     .min(0, 'capacity cannot be negative')
     .max(100000, 'capacity is unrealistically large')

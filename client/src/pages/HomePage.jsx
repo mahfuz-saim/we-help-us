@@ -4,13 +4,51 @@
  * In the skeleton this is a friendly landing page that links to the
  * other placeholder routes. The `placeholder` prop is used by the
  * protected-route demo pages to indicate which module will replace them.
+ *
+ * Logged-in users should never see the marketing surface — they get
+ * redirected to a role-aware default (OWNER → /owner/resources,
+ * VOLUNTEER → /volunteer/requests, MODERATOR/ADMIN → /moderator,
+ * else → /profile). Mirrors the post-login redirect in LoginPage
+ * and RegisterPage so any path that lands on `/` while authenticated
+ * produces the same destination.
  */
 
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+function defaultPathForRole(role) {
+  if (role === 'OWNER') return '/owner/resources';
+  if (role === 'VOLUNTEER') return '/volunteer/requests';
+  if (role === 'MODERATOR' || role === 'ADMIN') return '/moderator';
+  return '/profile';
+}
+
 export default function HomePage({ placeholder }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // While the auth context is hydrating from /auth/me, render a neutral
+  // skeleton rather than flashing the marketing page. This prevents
+  // a logged-in user with a slow connection from seeing the homepage
+  // for a frame before the redirect kicks in.
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-[40vh] items-center justify-center"
+      >
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600" />
+      </div>
+    );
+  }
+
+  // Logged-in users are bounced to their dashboard surface. The
+  // `replace` flag keeps the homepage out of browser history so the
+  // back button doesn't land them back on the marketing splash.
+  if (user) {
+    return <Navigate to={defaultPathForRole(user.role)} replace />;
+  }
+
 
   if (placeholder) {
     return (
@@ -88,9 +126,6 @@ export default function HomePage({ placeholder }) {
               {f.title}
             </h2>
             <p className="mt-1 text-sm text-slate-600">{f.body}</p>
-            <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">
-              Module {f.module} · {f.status}
-            </p>
           </article>
         ))}
       </section>

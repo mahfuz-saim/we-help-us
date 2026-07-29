@@ -109,13 +109,20 @@ export default function MobileNavDrawer({ open, onClose }) {
         </header>
 
         <nav className="flex flex-col gap-1 p-3">
-          <DrawerNav to="/" onClose={close} label="Home" />
-          <DrawerNav to="/health" onClose={close} label="Health" />
+          {/* Home is hidden for logged-in users — they navigate via
+              dashboards. The logo drives the OWNER back to /owner/resources. */}
+          {!user && <DrawerNav to="/" onClose={close} label="Home" />}
 
           {user ? (
             <>
-              <DrawerNav to="/resources" onClose={close} label="Resources" />
-              <DrawerNav to="/resources/map" onClose={close} label="Map" />
+              {user.role === 'VOLUNTEER' && (
+                <>
+                  {/* `end` so the "List" link only highlights on the
+                      exact /resources route, not on /resources/map. */}
+                  <DrawerNav to="/resources" end onClose={close} label="List" />
+                  <DrawerNav to="/resources/map" onClose={close} label="Map" />
+                </>
+              )}
               {user.role === 'VOLUNTEER' && (
                 <DrawerNav
                   to="/volunteer/requests"
@@ -124,11 +131,18 @@ export default function MobileNavDrawer({ open, onClose }) {
                 />
               )}
               {user.role === 'OWNER' && (
-                <DrawerNav
-                  to="/owner/requests"
-                  onClose={close}
-                  label="Incoming"
-                />
+                <>
+                  <DrawerNav
+                    to="/owner/resources"
+                    onClose={close}
+                    label="My Resources"
+                  />
+                  <DrawerNav
+                    to="/owner/requests"
+                    onClose={close}
+                    label="Incoming"
+                  />
+                </>
               )}
               {(user.role === 'MODERATOR' || user.role === 'ADMIN') && (
                 <>
@@ -137,12 +151,27 @@ export default function MobileNavDrawer({ open, onClose }) {
                     onClose={close}
                     label="Moderation"
                   />
+                  {/* Volunteers directory (Module: Volunteers Tab) — visible
+                      to both MODERATOR and ADMIN; the page dispatches on
+                      role inside VolunteersTabDispatcher. */}
+                  <DrawerNav
+                    to="/moderator/volunteers"
+                    onClose={close}
+                    label="Volunteers"
+                  />
                   <DrawerNav
                     to="/analytics"
                     onClose={close}
                     label="Analytics"
                   />
                 </>
+              )}
+              {user.role === 'ADMIN' && (
+                <DrawerNav
+                  to="/admin/moderators"
+                  onClose={close}
+                  label="Moderators"
+                />
               )}
               <DrawerNav to="/profile" onClose={close} label="Profile" />
               <button
@@ -171,10 +200,15 @@ export default function MobileNavDrawer({ open, onClose }) {
   );
 }
 
-function DrawerNav({ to, label, onClose }) {
+function DrawerNav({ to, label, onClose, end = false }) {
+  // `end` is forwarded so callers can opt out of react-router's
+  // prefix matching when two sibling routes share a path prefix
+  // (e.g. /resources and /resources/map). Without it, both links
+  // would be marked active at once.
   return (
     <NavLink
       to={to}
+      end={end}
       onClick={onClose}
       className={({ isActive }) => navLinkClassMobile(isActive)}
     >

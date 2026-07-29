@@ -53,7 +53,7 @@
  *     JSON-encoded form (the server's zod validator accepts that).
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -61,6 +61,7 @@ import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import AreaSelector from '../../components/AreaSelector';
+import { useAreaChain } from '../../hooks/useAreas';
 import {
   CATEGORIES,
   CATEGORY_META,
@@ -96,11 +97,39 @@ export default function ResourceRegisterPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // ── Profile location (default seed for the resource location) ─────────
+  // We prefill the resource's location picker with the OWNER's saved
+  // location from /api/auth/me so they don't have to re-pick it. Both
+  // the hierarchy (areaId) and the map pin (lng/lat) come from the
+  // user record. The chain query resolves the ancestor chain so the
+  // dropdowns pre-select the saved hierarchy.
+  const profileCoords = useMemo(() => {
+    const coords = user?.location?.coordinates;
+    if (!Array.isArray(coords)) return { lng: null, lat: null };
+    return { lng: coords[0] ?? null, lat: coords[1] ?? null };
+  }, [user]);
+  const profileChainQuery = useAreaChain({
+    areaId: user?.areaId || null,
+    enabled: Boolean(user?.areaId),
+  });
+  const profileChain = useMemo(() => {
+    const data = profileChainQuery.data;
+    if (!data || !Array.isArray(data.chain) || data.chain.length === 0) {
+      return [];
+    }
+    return data.chain;
+  }, [profileChainQuery.data]);
+  const profileChainLabel = useMemo(() => {
+    if (profileChain.length === 0) return null;
+    return profileChain.map((n) => n.name).filter(Boolean).join(' › ') || null;
+  }, [profileChain]);
+
   // ── Form state (whole flow, all fields visible to react-hook-form) ─────
   const {
     register,
     control,
     handleSubmit,
+    reset,
     setValue,
     setError,
     watch,
@@ -112,6 +141,52 @@ export default function ResourceRegisterPage() {
   });
 
   const values = watch();
+
+  // ── Seed `area` from the OWNER's profile location ─────────────────────
+  // Runs once the user object has hydrated AND the chain (if any) has
+  // resolved. We seed the area field with the profile's saved values so
+  // the picker opens at the right location. The user can still override
+  // any of these in the picker — subsequent edits flow through the
+  // Controller's onChange and overwrite this seed.
+  //
+  // We only seed once per session (tracked via a ref) so that user
+  // edits in the picker aren't blown away by a re-render.
+  const seededFromProfileRef = useRef(false);
+  useEffect(() => {
+    if (seededFromProfileRef.current) return;
+    if (!user) return;
+    // If the user has a saved areaId, wait for the chain query to
+    // resolve before seeding, so the dropdowns render with the right
+    // initial selection. If there's no areaId, seed immediately.
+    const hasSavedArea = Boolean(user.areaId);
+    if (hasSavedArea && profileChainQuery.isLoading) return;
+    seededFromProfileRef.current = true;
+    const current = values.area || {};
+    // Only seed when the area field is still at its default (empty)
+    // — never overwrite a user edit mid-flow.
+    const isUntouched =
+      !current.areaId &&
+      current.lng == null &&
+      current.lat == null;
+    if (!isUntouched) return;
+    reset(
+      {
+        ...blankResourceDefaults(),
+        area: {
+          areaId: user.areaId || null,
+          lng: profileCoords.lng,
+          lat: profileCoords.lat,
+          areaLabel: profileChainLabel,
+          chain: profileChain,
+        },
+      },
+      { keepDirtyValues: false, keepValues: false }
+    );
+    // We intentionally omit `values` from deps — we only want this
+    // effect to run once the seed data is ready, not on every form
+    // change. `values` is read inside as a snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profileChainQuery.isLoading, profileChain, profileChainLabel, profileCoords, reset]);
 
   // ── Photos live in a separate state because they aren't strings ──────
   const [photos, setPhotos] = useState([]);
@@ -712,9 +787,10 @@ function LocationStep({ control, error }) {
         Where is the resource?
       </legend>
       <p className="mt-1 text-sm text-slate-600">
-        Optional but recommended. You can pick by district hierarchy, by
-        address search, or by dropping a pin on the map. Either surface
-        alone is enough — the form accepts both.
+        Optional but recommended. Pre-filled from your profile location —
+        change it here if this resource is somewhere else. You can pick by
+        district hierarchy, by address search, or by dropping a pin on the
+        map. Either surface alone is enough — the form accepts both.
       </p>
       <div className="mt-4">
         <Controller
@@ -726,6 +802,12 @@ function LocationStep({ control, error }) {
               initialLng={field.value?.lng ?? null}
               initialLat={field.value?.lat ?? null}
               initialAreaLabel={field.value?.areaLabel || null}
+              initialChain={
+                Array.isArray(field.value?.chain) &&
+                field.value.chain.length > 0
+                  ? field.value.chain
+                  : null
+              }
               onChange={(next) => field.onChange(next)}
             />
           )}

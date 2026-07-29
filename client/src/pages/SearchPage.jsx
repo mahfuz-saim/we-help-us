@@ -3,10 +3,11 @@
  *
  * The discovery surface for any authenticated user. What this page does:
  *
- *   1. Renders a filter form (Category, Status, cascading Area, min
- *      Capacity, Distance from me, keyword). Filters live in URL
- *      search params so a search result is shareable and the back
- *      button works.
+ *   1. Renders a compact filter bar (Keyword, Category, Status,
+ *      Capacity, Distance from me, plus a collapsible Area cascade)
+ *      across the top of the page so the result list can take up
+ *      most of the viewport. Filters live in URL search params so
+ *      a search result is shareable and the back button works.
  *
  *   2. Calls GET /api/resources (the Module-3.2 list endpoint,
  *      extended in 4.1 with `minCapacity` and `lat/lng/radius`) via
@@ -156,53 +157,49 @@ export default function SearchPage() {
 
   // ── Render ───────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Header
         user={user}
         hasUserLocation={Boolean(hasUserLocation)}
         total={total}
       />
 
-      <div className="grid gap-6 lg:grid-cols-[18rem,1fr]">
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <FiltersForm
-            draft={draft}
-            setDraft={setDraft}
-            onSubmit={handleSubmit}
-            onClear={clearFilters}
-            hasUserLocation={Boolean(hasUserLocation)}
-          />
-        </aside>
+      <FiltersBar
+        draft={draft}
+        setDraft={setDraft}
+        onSubmit={handleSubmit}
+        onClear={clearFilters}
+        hasUserLocation={Boolean(hasUserLocation)}
+      />
 
-        <section>
-          {search.isLoading && <LoadingState />}
-          {search.error && <ErrorBanner message={search.error.message} />}
-          {!search.isLoading && !search.error && resources.length === 0 && (
-            <EmptyState hasFilters={hasAnyFilter(filters)} onClear={clearFilters} />
-          )}
-          {resources.length > 0 && (
-            <>
-              <ul className="grid gap-3">
-                {resources.map((r) => (
-                  <ResourceCard
-                    key={r.id}
-                    resource={r}
-                    user={user}
-                  />
-                ))}
-              </ul>
-              <Pagination
-                search={search}
-                resourcesShown={resources.length}
-                total={total}
-                onRefresh={() =>
-                  qc.invalidateQueries({ queryKey: ['resource-search'] })
-                }
-              />
-            </>
-          )}
-        </section>
-      </div>
+      <section>
+        {search.isLoading && <LoadingState />}
+        {search.error && <ErrorBanner message={search.error.message} />}
+        {!search.isLoading && !search.error && resources.length === 0 && (
+          <EmptyState hasFilters={hasAnyFilter(filters)} onClear={clearFilters} />
+        )}
+        {resources.length > 0 && (
+          <>
+            <ul className="grid gap-3">
+              {resources.map((r) => (
+                <ResourceCard
+                  key={r.id}
+                  resource={r}
+                  user={user}
+                />
+              ))}
+            </ul>
+            <Pagination
+              search={search}
+              resourcesShown={resources.length}
+              total={total}
+              onRefresh={() =>
+                qc.invalidateQueries({ queryKey: ['resource-search'] })
+              }
+            />
+          </>
+        )}
+      </section>
     </div>
   );
 }
@@ -219,15 +216,9 @@ function Header({ user, hasUserLocation, total }) {
             Browse what's available in your community. {total > 0 ? `${total} match your filters.` : ''}
           </p>
         </div>
-        <Link
-          to="/resources/map"
-          className="text-sm font-medium text-slate-600 hover:text-slate-900"
-        >
-          View on map →
-        </Link>
       </div>
       {!hasUserLocation && (
-        <p className="mt-1 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">
+        <p className="rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">
           Add a saved location to your profile to enable the "distance from me"
           filter.
         </p>
@@ -236,14 +227,25 @@ function Header({ user, hasUserLocation, total }) {
   );
 }
 
-// ── Filters form ────────────────────────────────────────────────────────
-
-function FiltersForm({ draft, setDraft, onSubmit, onClear, hasUserLocation }) {
+// ── Filters bar ─────────────────────────────────────────────────────────
+//
+// Compact, single-row filter surface. Layout:
+//
+//   ┌─ keyword (full width) ────────────────────────────────────────┐
+//   │ category | status | capacity | distance   [▸ Area]   [clear] [apply] │
+//   └────────────────────────────────────────────────────────────────┘
+//
+// The 5-level area cascade lives inside a `<details>` so the row stays
+// short by default; clicking "Area" expands the cascade inline. A small
+// chip beside the toggle shows whether an area is currently selected.
+function FiltersBar({ draft, setDraft, onSubmit, onClear, hasUserLocation }) {
+  const areaSelected = Boolean(draft.areaId);
   return (
     <form
       onSubmit={onSubmit}
       className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
     >
+      {/* Row 1 — Keyword (full width). */}
       <div>
         <label
           htmlFor="f-q"
@@ -262,127 +264,149 @@ function FiltersForm({ draft, setDraft, onSubmit, onClear, hasUserLocation }) {
         />
       </div>
 
-      <div>
-        <label
-          htmlFor="f-category"
-          className="block text-xs font-medium text-slate-600"
-        >
-          Category
-        </label>
-        <select
-          id="f-category"
-          value={draft.category || ''}
-          onChange={(e) =>
-            setDraft({ ...draft, category: e.target.value || null })
-          }
-          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
-        >
-          <option value="">Any category</option>
-          {CATEGORY_META.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.emoji} {c.label}
-            </option>
-          ))}
-        </select>
+      {/* Row 2 — Compact criteria + Area toggle + Apply/Clear. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[10rem] flex-1">
+          <label
+            htmlFor="f-category"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Category
+          </label>
+          <select
+            id="f-category"
+            value={draft.category || ''}
+            onChange={(e) =>
+              setDraft({ ...draft, category: e.target.value || null })
+            }
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+          >
+            <option value="">Any category</option>
+            {CATEGORY_META.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.emoji} {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="min-w-[10rem] flex-1">
+          <label
+            htmlFor="f-status"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Availability
+          </label>
+          <select
+            id="f-status"
+            value={draft.status || ''}
+            onChange={(e) =>
+              setDraft({ ...draft, status: e.target.value || null })
+            }
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+          >
+            {STATUS_CHOICES.map((s) => (
+              <option key={s.label} value={s.value || ''}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="min-w-[7rem]">
+          <label
+            htmlFor="f-min-capacity"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Min capacity
+          </label>
+          <input
+            id="f-min-capacity"
+            type="number"
+            min={0}
+            value={draft.minCapacity}
+            onChange={(e) =>
+              setDraft({ ...draft, minCapacity: e.target.value })
+            }
+            placeholder="any"
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+          />
+        </div>
+
+        <div className="min-w-[10rem] flex-1">
+          <label
+            htmlFor="f-distance"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Distance from me
+          </label>
+          <select
+            id="f-distance"
+            value={draft.distanceKm || ''}
+            disabled={!hasUserLocation}
+            onChange={(e) =>
+              setDraft({ ...draft, distanceKm: e.target.value || '' })
+            }
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {DISTANCE_CHOICES.map((d) => (
+              <option key={d.label} value={d.value || ''}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+          {!hasUserLocation && (
+            <p className="mt-1 text-xs text-slate-500">
+              Add a saved location to use this filter.
+            </p>
+          )}
+        </div>
+
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
+          >
+            Clear
+          </button>
+          <button
+            type="submit"
+            className="rounded-md bg-alert-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+          >
+            Apply filters
+          </button>
+        </div>
       </div>
 
-      <div>
-        <label
-          htmlFor="f-status"
-          className="block text-xs font-medium text-slate-600"
+      {/* Row 3 — Area (collapsible). Default collapsed; clicking
+          expands the 5-level cascade inline. The summary shows a
+          "selected" chip when an areaId is active so the user
+          doesn't have to expand it to remember what they picked. */}
+      <details className="group">
+        <summary
+          className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-slate-600 hover:text-slate-800"
         >
-          Availability
-        </label>
-        <select
-          id="f-status"
-          value={draft.status || ''}
-          onChange={(e) =>
-            setDraft({ ...draft, status: e.target.value || null })
-          }
-          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
-        >
-          {STATUS_CHOICES.map((s) => (
-            <option key={s.label} value={s.value || ''}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <fieldset className="space-y-2">
-        <legend className="text-xs font-medium text-slate-600">
-          Area (optional)
-        </legend>
-        <AreaCascadeFilter
-          value={draft.areaId}
-          onChange={(areaId) => setDraft({ ...draft, areaId })}
-        />
-      </fieldset>
-
-      <div>
-        <label
-          htmlFor="f-min-capacity"
-          className="block text-xs font-medium text-slate-600"
-        >
-          Minimum capacity
-        </label>
-        <input
-          id="f-min-capacity"
-          type="number"
-          min={0}
-          value={draft.minCapacity}
-          onChange={(e) =>
-            setDraft({ ...draft, minCapacity: e.target.value })
-          }
-          placeholder="e.g. 5 (people / units)"
-          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
-        />
-      </div>
-
-      <div>
-        <label
-          htmlFor="f-distance"
-          className="block text-xs font-medium text-slate-600"
-        >
-          Distance from me
-        </label>
-        <select
-          id="f-distance"
-          value={draft.distanceKm || ''}
-          disabled={!hasUserLocation}
-          onChange={(e) =>
-            setDraft({ ...draft, distanceKm: e.target.value || '' })
-          }
-          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {DISTANCE_CHOICES.map((d) => (
-            <option key={d.label} value={d.value || ''}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-        {!hasUserLocation && (
-          <p className="mt-1 text-xs text-slate-500">
-            Add a saved location to use this filter.
-          </p>
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-2 pt-2">
-        <button
-          type="submit"
-          className="flex-1 rounded-md bg-alert-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-alert-800"
-        >
-          Apply filters
-        </button>
-        <button
-          type="button"
-          onClick={onClear}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-        >
-          Clear
-        </button>
-      </div>
+          <span
+            aria-hidden
+            className="inline-block transition-transform group-open:rotate-90"
+          >
+            ▸
+          </span>
+          <span>Area</span>
+          {areaSelected && (
+            <span className="inline-flex items-center rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">
+              Selected
+            </span>
+          )}
+        </summary>
+        <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <AreaCascadeFilter
+            value={draft.areaId}
+            onChange={(areaId) => setDraft({ ...draft, areaId })}
+          />
+        </div>
+      </details>
     </form>
   );
 }

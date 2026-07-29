@@ -12,6 +12,9 @@
  *   are fine for the list view, but the map view needs a single
  *   bulk GET. The server already exposes GET /api/resources with the
  *   same shape — we just lift the page limit by passing a big `limit`.
+ *   The same hook also forwards `lat`/`lng`/`radius` when a search
+ *   location is active so the server's `$geoWithin` filter narrows
+ *   the result set to nearby resources.
  *
  * Status color-coding (Module 4.3 spec — "green/yellow/red/black"):
  *   AVAILABLE    → safe    (green)
@@ -22,7 +25,12 @@
  * Filter integration:
  *   - Category chips + status chips at the top, mirror the list
  *     page's filter surface (Module 4.1's URL-driven pattern).
- *   - Filters live in URL search params so a deep link to a
+ *   - A "Search location" section just below the FilterBar uses the
+ *     same `useNominatimSearch` hook the profile page's AreaSelector
+ *     uses. Picking a result writes `place`, `lat`, `lng`, `radius`
+ *     to the URL; the map flies to the lat/lng and only nearby
+ *     resources are plotted.
+ *   - All filters live in URL search params so a deep link to a
  *     pre-filtered map works and the back-button is sane.
  *
  * Privacy boundary (KEY DESIGN REMINDER):
@@ -34,8 +42,11 @@
  *   - The smoke test asserts this statically.
  *
  * Geospatial:
- *   - Markers only render for resources with a valid `location`
- *     (server filters out anything missing the GeoJSON Point).
+ *   - Markers only render for resources with a valid `location`.
+ *     When a search location is active, the server already filters
+ *     to within `radius` meters of the chosen lat/lng; when there
+ *     is no search location, the MapFitter fits bounds to whatever
+ *     plotted markers exist.
  *   - The map auto-fits bounds to whatever is on screen; if there
  *     are zero plottable resources it falls back to DEFAULT_MAP_CENTER.
  *
@@ -48,6 +59,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import L from 'leaflet';
 import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from 'react-leaflet';
 
 import '../utils/leaflet-icons';
@@ -59,9 +71,20 @@ import {
 } from '../utils/categories';
 import { RESOURCE_STATUS } from '../utils/constants';
 import { useMapResources } from '../hooks/useMapResources';
+import { useNominatimSearch } from '../hooks/useNominatimSearch';
 
-// URL keys the map view persists. Anything else stays ephemeral.
-const URL_KEYS = Object.freeze(['category', 'status']);
+// Radius choices (km) shown in the location-search <select>. The values
+// stay well under the server's 100 km cap (useMapResources).
+const RADIUS_OPTIONS_KM = Object.freeze([1, 2, 5, 10, 25, 50]);
+const DEFAULT_RADIUS_KM = 5;
+
+// URL params this page persists across reloads:
+//   - `category`, `status` — list-side filters from FilterBar.
+//   - `place`              — human-readable label for the active location.
+//   - `lat`, `lng`, `radius` — coordinates + km radius; the source of
+//     truth for whether a search location is active. `place` is purely
+//     cosmetic; the coordinates alone drive the API filter and the
+//     map's fitBounds.
 
 // Page size for the bulk fetch — bumped well above the search page's
 // 12 so the map shows as many pins as possible without pagination.
@@ -89,6 +112,7 @@ const STATUS_CHOICES = Object.freeze([
 export default function MapViewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Filters for the API call. category/status stay simple.
   const filters = useMemo(
     () => ({
       category: searchParams.get('category') || null,
@@ -97,27 +121,89 @@ export default function MapViewPage() {
     [searchParams]
   );
 
+  // Active search location, derived from the URL. Coordinates are the
+  // source of truth — `place` is purely cosmetic display text.
+  const location = useMemo(() => {
+    const lat = Number(searchParams.get('lat'));
+    const lng = Number(searchParams.get('lng'));
+    const radius = Number(searchParams.get('radius'));
+    const place = searchParams.get('place') || '';
+    if (
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      Number.isFinite(radius) &&
+      radius > 0
+    ) {
+      return { lat, lng, radius, place };
+    }
+    return null;
+  }, [searchParams]);
+
   const [draft, setDraft] = useState(() => filters);
   useEffect(() => {
     setDraft(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // Local mirror of the URL-based location text so the input can be
+  // edited freely without resetting the active selection. Mirrors
+  // AreaSelector's pattern: typing does NOT change the active place
+  // until the user picks a result.
+  const [placeInput, setPlaceInput] = useState(location ? location.place : '');
+  useEffect(() => {
+    setPlaceInput(location ? location.place : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   function applyFilters(next) {
-    const sp = new URLSearchParams();
-    for (const k of URL_KEYS) {
-      const v = next[k];
-      if (v === null || v === undefined || v === '') continue;
-      sp.set(k, String(v));
-    }
+    const sp = new URLSearchParams(searchParams);
+    // Update only the category/status keys (preserve any location keys).
+    sp.delete('category');
+    sp.delete('status');
+    if (next.category) sp.set('category', String(next.category));
+    if (next.status) sp.set('status', String(next.status));
     setSearchParams(sp, { replace: true });
   }
 
   function clearFilters() {
-    setSearchParams(new URLSearchParams(), { replace: true });
+    // Category/status only — leave any active search location intact.
+    const sp = new URLSearchParams(searchParams);
+    sp.delete('category');
+    sp.delete('status');
+    setSearchParams(sp, { replace: true });
   }
 
-  const query = useMapResources(filters);
+  function pickLocationResult(result) {
+    const lat = Number(result.lat);
+    const lng = Number(result.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const sp = new URLSearchParams(searchParams);
+    sp.set('place', result.displayName || '');
+    sp.set('lat', String(lat));
+    sp.set('lng', String(lng));
+    if (!sp.get('radius')) sp.set('radius', String(DEFAULT_RADIUS_KM));
+    setSearchParams(sp, { replace: true });
+    setPlaceInput(result.displayName || '');
+  }
+
+  function changeRadius(km) {
+    if (!location) return;
+    const sp = new URLSearchParams(searchParams);
+    sp.set('radius', String(km));
+    setSearchParams(sp, { replace: true });
+  }
+
+  function clearLocation() {
+    const sp = new URLSearchParams(searchParams);
+    sp.delete('place');
+    sp.delete('lat');
+    sp.delete('lng');
+    sp.delete('radius');
+    setSearchParams(sp, { replace: true });
+    setPlaceInput('');
+  }
+
+  const query = useMapResources(filters, location);
 
   const resources = useMemo(() => {
     if (!query.data) return [];
@@ -132,9 +218,11 @@ export default function MapViewPage() {
     });
   }, [query.data]);
 
+  const hasLocation = Boolean(location);
+
   return (
     <div className="space-y-4">
-      <Header total={resources.length} />
+      <Header total={resources.length} hasLocation={hasLocation} />
 
       <FilterBar
         draft={draft}
@@ -144,13 +232,29 @@ export default function MapViewPage() {
         isFetching={query.isFetching}
       />
 
+      <LocationSearch
+        placeInput={placeInput}
+        onPlaceInputChange={setPlaceInput}
+        onPick={pickLocationResult}
+        onClear={clearLocation}
+        radius={location ? location.radius : DEFAULT_RADIUS_KM}
+        onRadiusChange={changeRadius}
+        hasLocation={hasLocation}
+      />
+
       {query.isLoading && <LoadingState />}
       {query.error && <ErrorBanner message={query.error.message} />}
       {!query.isLoading && !query.error && resources.length === 0 && (
-        <EmptyState onClear={clearFilters} />
+        <EmptyState
+          hasLocation={hasLocation}
+          place={location ? location.place : ''}
+          radius={location ? location.radius : null}
+          onClearFilters={clearFilters}
+          onClearLocation={clearLocation}
+        />
       )}
       {resources.length > 0 && (
-        <ResourceMap resources={resources} />
+        <ResourceMap resources={resources} location={location} />
       )}
     </div>
   );
@@ -158,7 +262,7 @@ export default function MapViewPage() {
 
 // ── Header ───────────────────────────────────────────────────────────────
 
-function Header({ total }) {
+function Header({ total, hasLocation }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-2">
       <div>
@@ -168,6 +272,8 @@ function Header({ total }) {
         <p className="text-sm text-slate-600">
           {total > 0
             ? `${total} resource${total === 1 ? '' : 's'} plotted.`
+            : hasLocation
+            ? 'No resources within the searched area.'
             : 'No resources to plot yet.'}
         </p>
       </div>
@@ -267,7 +373,7 @@ function FilterBar({ draft, setDraft, onApply, onClear, isFetching }) {
 
 // ── Map ──────────────────────────────────────────────────────────────────
 
-function ResourceMap({ resources }) {
+function ResourceMap({ resources, location }) {
   // Auto-fit bounds whenever the resource list changes. The MapFitter
   // child reads the bounds via useMap() and runs fitBounds once.
   return (
@@ -283,7 +389,7 @@ function ResourceMap({ resources }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapFitter resources={resources} />
+        <MapFitter resources={resources} location={location} />
         {/* Module 9.1 — move the zoom control to the bottom-right so it
             doesn't collide with the legend on small viewports. The
             .whu-zoom-* CSS in index.css forces both buttons to the
@@ -298,10 +404,33 @@ function ResourceMap({ resources }) {
   );
 }
 
-function MapFitter({ resources }) {
+function MapFitter({ resources, location }) {
   const map = useMap();
   useEffect(() => {
     if (!map) return;
+    // 1. Active search location wins: fly to the lat/lng and fit the
+    //    radius bounds so the whole search area is visible.
+    if (
+      location &&
+      Number.isFinite(location.lat) &&
+      Number.isFinite(location.lng) &&
+      Number.isFinite(location.radius)
+    ) {
+      try {
+        const center = L.latLng(location.lat, location.lng);
+        const bounds = center.toBounds(location.radius * 1000); // km → m
+        map.flyToBounds(bounds, {
+          padding: [40, 40],
+          maxZoom: 14,
+          duration: 0.6,
+        });
+      } catch {
+        /* map not ready — ignore */
+      }
+      return;
+    }
+
+    // 2. No active location — fit to whatever markers are plotted.
     if (!Array.isArray(resources) || resources.length === 0) return;
     const bounds = resources
       .map((r) => {
@@ -321,7 +450,7 @@ function MapFitter({ resources }) {
     } catch {
       /* map not ready — ignore */
     }
-  }, [resources, map]);
+  }, [resources, location, map]);
   return null;
 }
 
@@ -442,24 +571,189 @@ function ErrorBanner({ message }) {
   );
 }
 
-function EmptyState({ onClear }) {
+function EmptyState({ hasLocation, place, radius, onClearFilters, onClearLocation }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
-      <p className="text-base font-semibold text-slate-900">
-        No resources match your filters
-      </p>
-      <p className="mt-1 text-sm text-slate-600">
-        Try widening the category / status filters, or browse the list view
-        for resources without a saved location.
-      </p>
-      <button
-        type="button"
-        onClick={onClear}
-        className="mt-4 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-      >
-        Clear filters
-      </button>
+      {hasLocation ? (
+        <>
+          <p className="text-base font-semibold text-slate-900">
+            No resources found within {radius} km of {place || 'this location'}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            Try a wider radius, or clear the location to see every geo-located
+            resource on the platform.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={onClearLocation}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Clear location
+            </button>
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Clear filters
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-base font-semibold text-slate-900">
+            No resources match your filters
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            Try widening the category / status filters, or browse the list view
+            for resources without a saved location.
+          </p>
+          <button
+            type="button"
+            onClick={onClearFilters}
+            className="mt-4 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Clear filters
+          </button>
+        </>
+      )}
     </div>
+  );
+}
+
+// ── Location search (Nominatim) ───────────────────────────────────────────
+//
+// Mirrors the address-search UX from AreaSelector.jsx's MapPanel:
+// search input → debounced Nominatim lookup → clickable result list
+// → selecting a result writes lat/lng/radius to the URL. The radius
+// <select> is independent so the user can widen/narrow after picking.
+function LocationSearch({
+  placeInput,
+  onPlaceInputChange,
+  onPick,
+  onClear,
+  radius,
+  onRadiusChange,
+  hasLocation,
+}) {
+  const search = useNominatimSearch(placeInput);
+
+  return (
+    <section
+      aria-label="Search map location"
+      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[16rem] flex-1">
+          <label
+            htmlFor="map-place-search"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Search location
+          </label>
+          <input
+            id="map-place-search"
+            type="text"
+            value={placeInput}
+            onChange={(e) => onPlaceInputChange(e.target.value)}
+            placeholder="E.g. Gulshan, Dhaka"
+            autoComplete="off"
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+          />
+        </div>
+
+        <div className="min-w-[10rem]">
+          <label
+            htmlFor="map-radius"
+            className="block text-xs font-medium text-slate-600"
+          >
+            Radius
+          </label>
+          <select
+            id="map-radius"
+            value={radius}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isFinite(next)) onRadiusChange(next);
+            }}
+            disabled={!hasLocation}
+            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+          >
+            {RADIUS_OPTIONS_KM.map((km) => (
+              <option key={km} value={km}>
+                Within {km} km
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {hasLocation && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-md border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 min-h-[44px]"
+          >
+            Clear location
+          </button>
+        )}
+      </div>
+
+      {/* Result list — same dropdown UX as AreaSelector. */}
+      {(search.isLoading ||
+        search.error ||
+        search.queryTooShort ||
+        (search.results && search.results.length > 0)) && (
+        <div className="mt-3">
+          {search.queryTooShort && (
+            <p className="text-xs text-slate-500">Keep typing to search…</p>
+          )}
+          {search.isLoading && (
+            <p className="text-xs text-slate-500">Searching locations…</p>
+          )}
+          {search.error && (
+            <p role="alert" className="text-xs text-alert-700">
+              Location search is temporarily unavailable. Try again.
+            </p>
+          )}
+          {search.results.length > 0 && (
+            <ul className="divide-y divide-slate-200 rounded-md border border-slate-200">
+              {search.results.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(r)}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    {r.displayName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* "No matches" only when the user has typed enough and we're
+          not currently loading. Mirrors the AreaSelector pattern. */}
+      {!search.isLoading &&
+        !search.error &&
+        !search.queryTooShort &&
+        search.results.length === 0 &&
+        placeInput.trim().length >= 3 && (
+          <p className="mt-2 text-xs text-slate-500">No matching locations found.</p>
+        )}
+
+      {hasLocation && (
+        <p className="mt-2 text-xs text-slate-600">
+          Showing resources within {radius} km of{' '}
+          <span className="font-medium text-slate-700">
+            {placeInput || 'this location'}
+          </span>
+          .
+        </p>
+      )}
+    </section>
   );
 }
 

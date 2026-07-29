@@ -8,28 +8,28 @@
  * Layout:
  *   1. Header — back link to /resources, category emoji + title +
  *      StatusBadge + last updated.
- *   2. Photo gallery — main photo + thumbnails, lightbox-style "click
- *      to enlarge" via a simple full-image overlay (we don't pull in
- *      a modal library — a `<dialog>` element is enough).
- *   3. Details grid — category, capacity, condition, status,
- *      approximate area (areaId hex — Module 4.3 will resolve it),
- *      distance from the signed-in user (only when both user.location
- *      and resource.location exist), last updated, ownerId (shown as
- *      a short hex hint so the viewer sees that the resource is
- *      registered — but never reveals contact info).
- *   4. Description — full text, no line-clamp.
- *   5. Action row — primary CTA:
- *        - VOLUNTEER: "Request this resource" (Module 5.2 wires the
- *          request lifecycle; for 4.2 the button is rendered but
- *          disabled with a copy explaining the request flow ships
- *          in Phase 5 — see SPEC note below).
- *        - OWNER who owns the resource: "Edit on dashboard" (links
- *          to /owner/resources?edit=<id>) — the dashboard's edit
- *          surface lands in a follow-up module too, so for 4.2 the
- *          link is rendered but its target is the dashboard list.
- *        - Everyone else (including unauthenticated — though the
- *          route guard already redirects): "Browse more resources"
- *          link back to /resources.
+ *   2. Description — full text, full width.
+ *   3. Two-column grid (md+):
+ *        - LEFT  → DetailsGrid (category, capacity, condition, status,
+ *                  area, distance, listed date, owner hint) +
+ *                  ActionRow (role-aware CTA).
+ *        - RIGHT → PhotoGallery. When the resource has uploaded photos
+ *                  the gallery shows them with thumbnails + click-to-
+ *                  enlarge; when no photos exist it falls back to a
+ *                  per-category default image generated inline by
+ *                  `getCategoryPlaceholderImage()`.
+ *
+ * 4. Action row — primary CTA:
+ *      - VOLUNTEER (verified): "Request this resource" — calls
+ *        POST /api/requests (Module 5.2). Disabled with a friendly
+ *        message when the resource is not AVAILABLE.
+ *      - VOLUNTEER (unverified): a "Go to profile" prompt — the
+ *        server gates create-request on isVerified so we mirror it
+ *        here rather than letting the user see a 403 on click.
+ *      - OWNER who owns the resource: "Open dashboard" link to
+ *        /owner/resources.
+ *      - MODERATOR / ADMIN: a neutral "no actions for your role"
+ *        card.
  *
  * Privacy boundary (KEY DESIGN REMINDER):
  *   - The server's `publicResource()` strips owner contact info
@@ -37,20 +37,13 @@
  *   - This page never tries to render `owner.email`, `owner.phone`,
  *     `owner.name`, or `resource.owner`. The smoke test asserts that
  *     statically (see `client/smoke-tests/4.2-resource-details.test.cjs`).
- *   - The "Request" CTA is volunteer-only and stays disabled until
- *     Module 5.2 — when it lands, the user will be able to send a
- *     real request and the server will reveal contact info ONLY
- *     after APPROVED + COLLECTED (per the KEY DESIGN REMINDER
- *     "Privacy: NEVER expose owner contact until request is
- *     APPROVED + COLLECTED").
- *
- * Why the Request button ships disabled:
- *   We could ship a live button that POSTs to /api/requests, but
- *   that endpoint doesn't exist yet. A live button that returns a
- *   404 from the future endpoint would mislead the user. A disabled
- *   button with a clear "Request flow ships in Phase 5" caption sets
- *   the right expectation and is the same pattern Module 1.4 used for
- *   the avatar upload 503 path (a clear "this isn't wired yet" UI).
+ *   - The "Request" CTA sends ONLY the resource id; contact reveal
+ *     happens server-side after APPROVED + COLLECTED (per the
+ *     KEY DESIGN REMINDER "Privacy: NEVER expose owner contact until
+ *     request is APPROVED + COLLECTED"). The mutation's success
+ *     response here also does not include contact info — the
+ *     volunteer sees a "Request sent" card pointing them to
+ *     /volunteer/requests.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -58,12 +51,15 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { useResource } from '../hooks/useResource';
+import { useCreateRequest } from '../hooks/useMyRequests';
 import {
   getCategoryEmoji,
   getCategoryLabel,
+  getCategoryPlaceholderImage,
 } from '../utils/categories';
 import { RESOURCE_STATUS } from '../utils/constants';
 import { formatDistance, haversineMeters } from '../utils/distance';
+import { extractFormError } from '../utils/formErrors';
 
 export default function ResourceDetailsPage() {
   const { id } = useParams();
@@ -103,21 +99,20 @@ export default function ResourceDetailsPage() {
       {resource && (
         <>
           <Header resource={resource} />
-          <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+          <Description text={resource.description} />
+
+          <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-6">
-              <PhotoGallery photos={resource.photos || []} title={resource.title} />
-              <Description text={resource.description} />
+              <DetailsGrid resource={resource} distance={distance} />
+              <ActionRow resource={resource} user={user} />
             </div>
-            <aside className="space-y-6">
-              <DetailsGrid
-                resource={resource}
-                distance={distance}
+            <div>
+              <PhotoGallery
+                photos={resource.photos || []}
+                title={resource.title}
+                category={resource.category}
               />
-              <ActionRow
-                resource={resource}
-                user={user}
-              />
-            </aside>
+            </div>
           </div>
         </>
       )}
@@ -200,7 +195,7 @@ function StatusBadge({ status }) {
 
 // ── Photo gallery ────────────────────────────────────────────────────────
 
-function PhotoGallery({ photos, title }) {
+function PhotoGallery({ photos, title, category }) {
   const list = Array.isArray(photos) ? photos : [];
   const [active, setActive] = useState(0);
 
@@ -211,9 +206,11 @@ function PhotoGallery({ photos, title }) {
 
   if (list.length === 0) {
     return (
-      <div className="flex aspect-[4/3] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-        No photos uploaded
-      </div>
+      <img
+        src={getCategoryPlaceholderImage(category, { label: title })}
+        alt={title ? `${title} placeholder` : 'Resource placeholder'}
+        className="aspect-[4/3] w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+      />
     );
   }
 
@@ -396,7 +393,7 @@ function ActionRow({ resource, user }) {
     user.role === 'OWNER' && resource.ownerId === user.id;
 
   if (isVolunteer) {
-    return <VolunteerRequestCTA />;
+    return <VolunteerRequestCTA resource={resource} user={user} />;
   }
   if (isOwner) {
     return (
@@ -430,12 +427,99 @@ function ActionRow({ resource, user }) {
   );
 }
 
-function VolunteerRequestCTA() {
-  // Phase 5 wires the request lifecycle (Module 5.2 — POST /api/requests,
-  // approval/rejection flow). Until then the button is disabled so
-  // users see the affordance without a misleading click that goes
-  // nowhere. This matches the 1.4 avatar-upload 503 pattern: be
-  // honest about what the UI can do today.
+function VolunteerRequestCTA({ resource, user }) {
+  // Module 5.2 wires the request lifecycle end-to-end — POST /api/requests
+  // exists server-side, plus approve / reject / collect / return / complete
+  // endpoints. The volunteer can create a request directly from this page
+  // as soon as they hit "Request this resource". Server-side gates:
+  //   - role === VOLUNTEER (server enforces)
+  //   - user.isVerified === true (server enforces — KEY DESIGN REMINDER)
+  //   - resource.status === AVAILABLE
+  //   - volunteer is not the resource's owner
+  //   - no open request already exists for (volunteer, resource)
+  // We mirror the volunteer + verified gates on the client so the
+  // button is disabled up front with an honest message; the server's
+  // 403/409 still acts as the source of truth.
+  const navigate = useNavigate();
+  const create = useCreateRequest();
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  const isVerified = user?.isVerified === true;
+  const isAvailable =
+    (resource.status || '').toUpperCase() === 'AVAILABLE';
+  const created = !!create.data;
+
+  // If the user lands on the page after the owner flips the resource
+  // away from AVAILABLE, the server would 409 — surface that locally
+  // instead of letting the request fire.
+  const disabledReason = !isVerified
+    ? 'You need to be a verified volunteer to request resources.'
+    : !isAvailable
+      ? 'This resource is not currently available for new requests.'
+      : null;
+
+  // Unverified branch — short-circuit with a clear pointer to the
+  // profile page (Module 6.2 explains what verification means).
+  if (!isVerified) {
+    return (
+      <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-base font-semibold text-slate-900">
+          Need this resource?
+        </h2>
+        <p className="text-sm text-slate-600">
+          Only verified volunteers can request resources. Verification
+          keeps the request flow trusted — see your profile for
+          what's needed.
+        </p>
+        <Link
+          to="/profile"
+          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+        >
+          Go to profile
+        </Link>
+      </div>
+    );
+  }
+
+  function handleRequest() {
+    setErrorMessage(null);
+    create.mutate(
+      { resourceId: resource.id },
+      {
+        onError: (err) => {
+          const { topMessage } = extractFormError(err);
+          setErrorMessage(
+            topMessage ||
+              'Could not send your request. Please try again in a moment.'
+          );
+        },
+      }
+    );
+  }
+
+  if (created) {
+    return (
+      <div className="space-y-2 rounded-lg border border-safe-300 bg-safe-50 p-4 shadow-sm">
+        <h2 className="text-base font-semibold text-safe-800">
+          Request sent
+        </h2>
+        <p className="text-sm text-safe-800">
+          The owner has been notified. You'll see updates on your{' '}
+          <span className="font-medium">My Requests</span> dashboard —
+          contact details are revealed only after the owner approves
+          and you collect the resource.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/volunteer/requests')}
+          className="inline-flex w-full justify-center rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 min-h-[44px]"
+        >
+          View my requests
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">
@@ -448,17 +532,24 @@ function VolunteerRequestCTA() {
       </p>
       <button
         type="button"
-        disabled
-        title="Request workflow ships in Phase 5"
-        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white opacity-60 shadow-sm min-h-[44px]"
+        onClick={handleRequest}
+        disabled={create.isPending || !!disabledReason}
+        title={disabledReason || undefined}
+        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
       >
-        Request this resource
+        {create.isPending ? 'Sending request…' : 'Request this resource'}
       </button>
-      <p className="text-xs text-slate-500">
-        Request workflow ships in Phase 5 (Module 5.2). The button is
-        here so you can see what's coming — it'll go live once the
-        reservation APIs land.
-      </p>
+      {disabledReason && (
+        <p className="text-xs text-slate-500">{disabledReason}</p>
+      )}
+      {errorMessage && (
+        <p
+          role="alert"
+          className="rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs text-alert-800"
+        >
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 }

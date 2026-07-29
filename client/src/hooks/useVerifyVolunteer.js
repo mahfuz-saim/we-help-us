@@ -8,10 +8,14 @@
  * caller can update local UI state without a round-trip.
  *
  * Cache invalidation on success:
- *   - ['moderator-requests'] — the moderator's request dashboard
+ *   - ['moderator-requests']    — the moderator's request dashboard
  *     populates `volunteerSummary.isVerified` and renders the badge
  *     next to each row; refetch so the badge appears after verify.
- *   - ['owner-requests']     — same populate, owner side.
+ *   - ['owner-requests']        — same populate, owner side.
+ *   - ['admin-volunteers']      — admin's volunteer directory list;
+ *     the row's pill flips from Unverified → Verified.
+ *   - ['moderator-volunteers']  — moderator's volunteer directory list;
+ *     same flip.
  *
  * Privacy (KEY DESIGN REMINDER): the response is the
  * `publicUserDirectory()` shape (same one Module 6.1's directory
@@ -51,6 +55,12 @@ export function useVerifyVolunteer() {
       // next to any volunteers who already appear there.
       qc.invalidateQueries({ queryKey: ['moderator-requests'] });
       qc.invalidateQueries({ queryKey: ['owner-requests'] });
+      // Volunteer directory lists (Module: Volunteers Tab). The
+      // admin + moderator panels render the verified pill per row
+      // from the directory response, so the row needs to refetch
+      // immediately after a verify.
+      qc.invalidateQueries({ queryKey: ['admin-volunteers'] });
+      qc.invalidateQueries({ queryKey: ['moderator-volunteers'] });
     },
   });
 }

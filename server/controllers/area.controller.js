@@ -2,7 +2,12 @@
  * Area controller — public reference-data endpoints (Module 2.1).
  *
  * Endpoints:
- *   - GET /api/areas  → list areas filtered by `level` and/or `parent`.
+ *   - GET /api/areas     → list areas filtered by `level` and/or `parent`.
+ *   - GET /api/areas/:id → resolve a single area id to its full ancestor
+ *                           chain (root → leaf). Used by the profile
+ *                           page so a stored `areaId` can be displayed
+ *                           as a hierarchy label even when the picker
+ *                           is in read-only mode.
  *
  * Design notes:
  *   - Areas are PUBLIC reference data. There is no PII on the Area
@@ -25,6 +30,7 @@ const { ok } = require('../utils/apiResponse');
 const Area = require('../models/Area');
 
 const MAX_RESULTS = 5000;
+const MAX_CHAIN_DEPTH = 16; // safety cap — Bangladesh's deepest level is VILLAGE (5)
 
 async function listAreas(req, res, next) {
   try {
@@ -65,4 +71,63 @@ async function listAreas(req, res, next) {
   }
 }
 
-module.exports = { listAreas };
+/**
+ * GET /api/areas/:id
+ *
+ * Resolve a single area id to its full ancestor chain (root → leaf).
+ * Returns:
+ *   {
+ *     area:   { id, level, name },
+ *     chain:  [{ id, level, name }, ...]   // root first, leaf last
+ *   }
+ *
+ * Walking is iterative (not recursive) with a hard depth cap so a
+ * malformed tree can't blow the stack or spin forever. If any link
+ * is missing (orphan or stale reference) we stop walking and return
+ * what we have — the client can still show the partial chain.
+ */
+async function getAreaChain(req, res, next) {
+  try {
+    const startId = req.params.id;
+    const chain = [];
+
+    let cursorId = startId;
+    let depth = 0;
+    let leaf = null;
+
+    while (cursorId && depth < MAX_CHAIN_DEPTH) {
+      const doc = await Area.findById(cursorId)
+        .select('name level parentId')
+        .lean();
+      if (!doc) break;
+      chain.push({
+        id: doc._id.toString(),
+        level: doc.level,
+        name: doc.name,
+      });
+      if (!leaf) leaf = { id: doc._id.toString(), level: doc.level, name: doc.name };
+      cursorId = doc.parentId ? doc.parentId.toString() : null;
+      depth += 1;
+    }
+
+    if (chain.length === 0) {
+      throw new ApiError(404, 'area not found');
+    }
+
+    // Root first → leaf last (we walked leaf → root above, so reverse).
+    chain.reverse();
+
+    return ok(
+      res,
+      {
+        area: leaf,
+        chain,
+      },
+      'Area resolved'
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listAreas, getAreaChain };

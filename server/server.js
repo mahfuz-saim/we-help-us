@@ -20,6 +20,7 @@ const { configureCloudinary } = require("./config/cloudinary");
 const { connectDB, isConnected, disconnectDB } = require("./config/db");
 const { initSocket } = require("./sockets");
 const { seedAreasIfEmpty } = require("./utils/seedAreas");
+const { seedAdminIfMissing } = require("./utils/seedAdmin");
 
 const PORT = Number(process.env.PORT) || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -60,6 +61,26 @@ async function main() {
         } catch (err) {
           // eslint-disable-next-line no-console
           console.warn(`[seed] area auto-seed skipped: ${err.message}`);
+        }
+      }
+
+      // Auto-seed a permanent ADMIN account on every fresh database so
+      // an operator always has a usable admin login. Idempotent: if the
+      // admin email already exists, this is a no-op. Bypass with
+      // `SKIP_ADMIN_AUTOSEED=1` (useful for tests that don't want the
+      // default admin user).
+      if (process.env.SKIP_ADMIN_AUTOSEED !== "1") {
+        try {
+          const seeded = await seedAdminIfMissing();
+          if (seeded) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[seed] admin created: ${seeded.email} (role=${seeded.role})`
+            );
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(`[seed] admin auto-seed skipped: ${err.message}`);
         }
       }
     }

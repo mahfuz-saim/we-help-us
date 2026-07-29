@@ -45,6 +45,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import RoleBadge from '../components/RoleBadge';
 import AreaSelector from '../components/AreaSelector';
+import { useAreaChain } from '../hooks/useAreas';
 import { extractFormError } from '../utils/formErrors';
 import { UPLOAD_LIMITS } from '../utils/constants';
 
@@ -100,27 +101,6 @@ export default function ProfilePage() {
     defaultValues: blankDefaults(),
   });
 
-  // Re-seed the form whenever the user object changes (after a PATCH or
-  // after the initial AuthContext hydration).
-  useEffect(() => {
-    if (!user) return;
-    const coords = user?.location?.coordinates;
-    reset({
-      name: user.name || '',
-      email: user.email || '',
-      phone: user.phone || '',
-      // The AreaSelector is bound to `area` via Controller below.
-      // On mount we seed its initial areaId/lng/lat/areaLabel from
-      // the existing user record.
-      area: {
-        areaId: user.areaId || null,
-        lng: Array.isArray(coords) ? coords[0] : null,
-        lat: Array.isArray(coords) ? coords[1] : null,
-        areaLabel: null, // selector re-derives the chain itself
-      },
-    });
-  }, [user, reset]);
-
   // ── Location display/edit toggle ───────────────────────────────────────
   // After the first successful save, the page shows the location as a
   // read-only summary (AreaSelector with `displayMode === true`). The
@@ -132,6 +112,58 @@ export default function ProfilePage() {
   // `savedLocation` is a stable snapshot of what the server currently
   // has for this user; it powers the read-only summary and is the
   // rollback target when the user clicks "Cancel" mid-edit.
+  //
+  // We resolve the human-readable hierarchy label by fetching the
+  // ancestor chain for the stored `areaId`. This proves to the user
+  // that BOTH their hierarchy (`areaId`) and map pin (`location`) are
+  // persisted when both are set — both fields round-trip via
+  // /api/auth/me, and the read-only summary displays both.
+  //
+  // IMPORTANT: these declarations must come BEFORE the reset effect
+  // below, because the effect's dependency array reads them and React
+  // invokes the effect during render — accessing the bindings before
+  // they're initialised would hit a TDZ ReferenceError.
+  const areaChain = useAreaChain({
+    areaId: user?.areaId || null,
+    enabled: Boolean(user?.areaId),
+  });
+  const resolvedChain = useMemo(() => {
+    const data = areaChain.data;
+    if (!data || !Array.isArray(data.chain) || data.chain.length === 0) {
+      return [];
+    }
+    return data.chain;
+  }, [areaChain.data]);
+  const resolvedChainLabel = useMemo(() => {
+    if (resolvedChain.length === 0) return null;
+    return resolvedChain.map((n) => n.name).filter(Boolean).join(' › ') || null;
+  }, [resolvedChain]);
+
+  // Re-seed the form whenever the user object changes (after a PATCH or
+  // after the initial AuthContext hydration). The reset also includes
+  // the resolved ancestor chain so the picker's hierarchy dropdowns
+  // pre-select the saved hierarchy when the user opens edit mode.
+  useEffect(() => {
+    if (!user) return;
+    const coords = user?.location?.coordinates;
+    reset({
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      // The AreaSelector is bound to `area` via Controller below.
+      // On mount we seed its initial areaId/lng/lat/chain from
+      // the existing user record so the dropdowns open with the
+      // saved selection and the map opens with the saved pin.
+      area: {
+        areaId: user.areaId || null,
+        lng: Array.isArray(coords) ? coords[0] : null,
+        lat: Array.isArray(coords) ? coords[1] : null,
+        areaLabel: resolvedChainLabel,
+        chain: resolvedChain,
+      },
+    });
+  }, [user, reset, resolvedChain, resolvedChainLabel]);
+
   const savedLocation = useMemo(() => {
     if (!user) return null;
     const coords = user.location && user.location.coordinates;
@@ -144,13 +176,12 @@ export default function ProfilePage() {
       areaId: user.areaId || null,
       lng,
       lat,
-      // The chain label isn't persisted server-side — the read-only
-      // summary just receives the leaf id + a label derived from it.
-      // When the user enters edit mode, the dropdowns walk the chain
-      // forward from this id so the prior selections are restored.
-      areaLabel: null,
+      // The chain label is resolved client-side from the stored
+      // areaId; it stays null only while the chain is loading or
+      // when the user has chosen a map pin without an areaId.
+      areaLabel: resolvedChainLabel,
     };
-  }, [user]);
+  }, [user, resolvedChainLabel]);
 
   const [locationEditing, setLocationEditing] = useState(
     // Initial value: edit mode iff nothing to display.
@@ -495,6 +526,12 @@ export default function ProfilePage() {
                       initialLng={field.value?.lng ?? null}
                       initialLat={field.value?.lat ?? null}
                       initialAreaLabel={field.value?.areaLabel || null}
+                      initialChain={
+                        Array.isArray(field.value?.chain) &&
+                        field.value.chain.length > 0
+                          ? field.value.chain
+                          : resolvedChain
+                      }
                       onChange={(next) => field.onChange(next)}
                       disabled={saving}
                     />

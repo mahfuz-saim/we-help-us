@@ -45,4 +45,15 @@ const listAreasQuerySchema = z
     { message: 'Provide either level or parent to filter areas.' }
   );
 
-module.exports = { listAreasQuerySchema };
+// Params schema for GET /api/areas/:id — used to resolve a stored
+// areaId back to its hierarchy chain for the profile page summary.
+const getAreaByIdParamsSchema = z
+  .object({
+    id: objectIdString,
+  })
+  .strict();
+
+module.exports = {
+  listAreasQuerySchema,
+  getAreaByIdParamsSchema,
+};

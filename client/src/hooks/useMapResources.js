@@ -10,9 +10,16 @@
  * client-side in MapViewPage.
  *
  * Filters supported here mirror the map view's URL params (category +
- * status). Other filters (q, areaId, minCapacity, lat/lng/radius) are
- * intentionally NOT wired because the map's UX only exposes category
- * + status. If we needed the rest later we'd share the helpers from
+ * status + a single active search location). The location is forwarded
+ * to the server as `lat` / `lng` / `radius` (meters); the controller
+ * already supports it via `$geoWithin / $centerSphere` (see
+ * server/controllers/resource.controller.js). When any of the three
+ * location values is missing/non-finite, the geo filter is dropped so
+ * the request still works.
+ *
+ * Other filters (q, areaId, minCapacity) are intentionally NOT wired
+ * because the map's UX only exposes category + status + location. If
+ * we needed the rest later we'd share the helpers from
  * useResourceSearch instead of duplicating them.
  */
 
@@ -25,10 +32,41 @@ import api from '../services/api';
 // the catalog grows past 50 geo-located resources.
 const MAP_LIMIT = 50;
 
-function buildParams(filters) {
+function isFiniteNumber(n) {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+function locationKey(location) {
+  if (
+    !location ||
+    !isFiniteNumber(location.lat) ||
+    !isFiniteNumber(location.lng) ||
+    !isFiniteNumber(location.radius)
+  ) {
+    return 'no-location';
+  }
+  // The radius is in km on the URL but the server expects meters —
+  // bake the converted value into the cache key so a future unit
+  // change doesn't accidentally reuse a stale response.
+  return `${location.lat},${location.lng},${Math.round(location.radius * 1000)}`;
+}
+
+function buildParams(filters, location) {
   const params = { limit: MAP_LIMIT };
   if (filters && filters.category) params.category = filters.category;
   if (filters && filters.status) params.status = filters.status;
+  if (
+    location &&
+    isFiniteNumber(location.lat) &&
+    isFiniteNumber(location.lng) &&
+    isFiniteNumber(location.radius)
+  ) {
+    params.lat = location.lat;
+    params.lng = location.lng;
+    // Server's cap is 100 km (server MAX_RADIUS_METERS). The map's
+    // UI options (1/2/5/10/25/50) are well within that.
+    params.radius = Math.min(Math.round(location.radius * 1000), 100000);
+  }
   return params;
 }
 
@@ -46,15 +84,21 @@ function hashFilters(filters) {
  * @param {object} [filters]
  * @param {string|null} [filters.category]
  * @param {string|null} [filters.status]
+ * @param {object} [location]
+ * @param {number} [location.lat]
+ * @param {number} [location.lng]
+ * @param {number} [location.radius] - radius in KILOMETERS (the hook
+ *   converts to meters for the API call).
  */
-export function useMapResources(filters = {}) {
-  const hash = hashFilters(filters);
+export function useMapResources(filters = {}, location = null) {
+  const filtersHash = hashFilters(filters);
+  const locKey = locationKey(location);
   return useQuery({
-    queryKey: ['map-resources', hash],
+    queryKey: ['map-resources', filtersHash, locKey],
     staleTime: 30 * 1000,
     queryFn: async () => {
       const { data } = await api.get('/resources', {
-        params: buildParams(filters),
+        params: buildParams(filters, location),
       });
       return (
         data?.data || { resources: [], pagination: { total: 0, page: 1 } }

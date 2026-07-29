@@ -15,8 +15,13 @@ import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
 import VolunteerDashboardPage from './pages/volunteer/VolunteerDashboardPage.jsx';
 import ModeratorDashboardPage from './pages/moderator/ModeratorDashboardPage.jsx';
+import ModeratorVolunteersListPage from './pages/moderator/ModeratorVolunteersListPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
+import AdminModeratorsListPage from './pages/admin/AdminModeratorsListPage.jsx';
+import AdminCreateModeratorPage from './pages/admin/AdminCreateModeratorPage.jsx';
+import AdminVolunteersListPage from './pages/admin/AdminVolunteersListPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import { useAuth } from './context/AuthContext.jsx';
 
 /**
  * App router.
@@ -26,6 +31,21 @@ import ProtectedRoute from './components/ProtectedRoute.jsx';
  * modules. Placeholders deliberately link to future module paths so the
  * router layout is stable and imports don't need to be moved later.
  */
+
+/**
+ * VolunteersTabDispatcher — the role-aware wrapper for the shared
+ * `/moderator/volunteers` link. The MODERATOR route serves the
+ * area-scoped moderator page; the same URL also serves admins, who
+ * instead get the admin page (full AreaCascadeFilter + global view).
+ * The shared URL keeps the top-bar nav to a single "Volunteers" link
+ * for both MODERATOR and ADMIN (Module: Volunteers Tab).
+ */
+function VolunteersTabDispatcher() {
+  const { user } = useAuth();
+  if (user?.role === 'ADMIN') return <AdminVolunteersListPage />;
+  return <ModeratorVolunteersListPage />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -78,12 +98,33 @@ export default function App() {
             path="moderator"
             element={<ModeratorDashboardPage />}
           />
+          {/* Volunteers directory (Module: Volunteers Tab) — shared
+              between MODERATOR (area-scoped) and ADMIN (global). The
+              component dispatches on role. */}
+          <Route
+            path="moderator/volunteers"
+            element={<VolunteersTabDispatcher />}
+          />
           {/* Analytics dashboard (Module 8.2) — same role gate as
               the moderator dashboard. Read-only reporting surface
               over the 8.1 endpoints. */}
           <Route
             path="analytics"
             element={<AnalyticsPage />}
+          />
+        </Route>
+
+        {/* Admin-only — moderator directory (Module 1.2 admin UI).
+            Separate role gate from the MODERATOR|ADMIN gate above so a
+            moderator can never reach the create-moderator form. */}
+        <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+          <Route
+            path="admin/moderators"
+            element={<AdminModeratorsListPage />}
+          />
+          <Route
+            path="admin/moderators/new"
+            element={<AdminCreateModeratorPage />}
           />
         </Route>
 

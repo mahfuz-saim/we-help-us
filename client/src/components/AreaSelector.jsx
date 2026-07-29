@@ -71,6 +71,11 @@ const SEARCH_RESULT_ZOOM = 16;
  * @param {number}  [props.initialLng]
  * @param {number}  [props.initialLat]
  * @param {string}  [props.initialAreaLabel]  Read-only hint shown on first paint
+ * @param {Array<{id, level, name}>} [props.initialChain]
+ *        Full ancestor chain (root → leaf) for the saved areaId. When
+ *        provided, every dropdown is pre-seeded with the saved level
+ *        so the user can see exactly what hierarchy they had selected.
+ *        When absent, only the leaf is shown (legacy behavior).
  * @param {boolean} [props.disabled=false]
  * @param {boolean} [props.displayMode=false] When true, render the
  *                                          read-only summary (label +
@@ -83,6 +88,7 @@ export default function AreaSelector({
   initialLng = null,
   initialLat = null,
   initialAreaLabel = null,
+  initialChain = null,
   disabled = false,
   displayMode = false,
   onChange,
@@ -105,8 +111,11 @@ export default function AreaSelector({
 
   // ── Hierarchy state ────────────────────────────────────────────────────
   // `chain` maps level → { id, name } so the summary can render labels.
-  // We seed it with the parent's hint so the dropdowns can be re-opened
-  // to "show me where I am" without a server round-trip.
+  // We seed it from `initialChain` when the parent provides the full
+  // ancestor chain (preferred) — that way every dropdown is pre-selected
+  // with the saved level. Fallback: if only `initialAreaId` + label are
+  // available, we seed just the VILLAGE slot so the user can still
+  // re-walk the chain forward from the leaf.
   const [chain, setChain] = useState(() => {
     const seed = {
       DISTRICT: null,
@@ -115,12 +124,19 @@ export default function AreaSelector({
       WARD: null,
       VILLAGE: null,
     };
-    if (initialAreaId && initialAreaLabel) {
-      // We don't know which level initialAreaId sits at — but the seed
-      // label tells us the deepest known node. The leaf sits in VILLAGE
-      // semantically, but the user can correct it by re-selecting in
-      // the dropdown. We seed VILLAGE so the next "deeper" picks keep
-      // walking down.
+    if (Array.isArray(initialChain) && initialChain.length > 0) {
+      // initialChain is root → leaf. Copy each node into its level.
+      // We tolerate unknown levels by ignoring them.
+      for (const node of initialChain) {
+        if (!node || !node.level) continue;
+        if (node.level in seed) {
+          seed[node.level] = { id: node.id, name: node.name };
+        }
+      }
+    } else if (initialAreaId && initialAreaLabel) {
+      // Legacy fallback: parent only knows the leaf id + a single label.
+      // Place it in VILLAGE so the user can correct it by re-selecting
+      // in the dropdowns.
       seed.VILLAGE = { id: initialAreaId, name: initialAreaLabel };
     }
     return seed;

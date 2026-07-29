@@ -8,11 +8,11 @@
  * be self-registered; they must be minted by an authenticated admin via
  * /api/admin/create-privileged-user (Module 1.2).
  *
- * The "Why no Moderator/Admin sign-up?" explainer block below the form
- * is intentionally kept in the page so any visitor reading it sees the
- * project rule. Defense in depth: even if the dropdown were tampered with,
- * the server's zod validator rejects any role outside PUBLIC_REGISTRATION_ROLES,
+ * Defense in depth: even if the dropdown were tampered with, the server's
+ * zod validator rejects any role outside PUBLIC_REGISTRATION_ROLES,
  * and AuthContext.register() strips any non-public role before posting.
+ * The page surfaces no hint that privileged roles exist — users only see
+ * the two public sign-up options.
  *
  * KEY DESIGN REMINDERS honored:
  *   - Role escalation: OWNER/VOLUNTEER only, always.
@@ -52,6 +52,16 @@ export default function RegisterPage() {
   const [serverError, setServerError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Role-aware landing for new sign-ups. Public registration only
+  // accepts OWNER/VOLUNTEER, but the helper still guards other roles
+  // so we don't surprise an admin created via the admin create form.
+  function defaultPathForRole(role) {
+    if (role === 'OWNER') return '/owner/resources';
+    if (role === 'VOLUNTEER') return '/volunteer/requests';
+    if (role === 'MODERATOR' || role === 'ADMIN') return '/moderator';
+    return '/';
+  }
+
   const {
     register,
     handleSubmit,
@@ -83,9 +93,9 @@ export default function RegisterPage() {
 
     setSubmitting(true);
     try {
-      await registerUser(payload);
+      const created = await registerUser(payload);
       toast.success('Account created — welcome!');
-      navigate('/', { replace: true });
+      navigate(defaultPathForRole(created?.role), { replace: true });
     } catch (err) {
       const { topMessage, fieldErrors, status } = extractFormError(err);
       setServerError({ message: topMessage, status });
@@ -199,10 +209,6 @@ export default function RegisterPage() {
             <legend className="block text-sm font-medium text-slate-700">
               I want to join as
             </legend>
-            <p className="mt-1 text-xs text-slate-500">
-              You can only register as a public role. Moderator / admin
-              accounts are created by an existing admin.
-            </p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {PUBLIC_REGISTRATION_ROLES.map((role) => {
                 const copy = ROLE_COPY[role];
@@ -254,13 +260,7 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <div className="mt-6 rounded-md border border-caution-300 bg-caution-50 p-3 text-sm text-caution-800">
-          <strong>Why no Moderator/Admin sign-up?</strong> Privileged
-          accounts are created only via an authenticated admin endpoint
-          or a seed script — they can never be self-registered.
-        </div>
-
-        <p className="mt-4 text-sm text-slate-600">
+        <p className="mt-6 text-sm text-slate-600">
           Already have an account?{' '}
           <Link
             to="/login"

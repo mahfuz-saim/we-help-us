@@ -273,11 +273,16 @@ export function buildCreatePayload(values, photos = []) {
   if (v.title) fd.append('title', String(v.title).trim());
   if (v.description) fd.append('description', String(v.description).trim());
 
-  // Optional textual fields — append only when set so we don't ship
-  // empty strings (the server validator doesn't treat '' as undefined
-  // and would 400 on a non-integer capacity).
+  // Optional numeric fields — only append when set AND a valid
+  // integer, so we don't ship empty strings or NaN (the server's
+  // zod validator rejects `expected number, received string`).
+  // react-hook-form's `register` returns the raw input value as a
+  // string even for `type="number"` inputs, so we coerce here.
   if (v.capacity !== undefined && v.capacity !== null && v.capacity !== '') {
-    fd.append('capacity', String(parseInt(v.capacity, 10)));
+    const n = parseInt(v.capacity, 10);
+    if (Number.isFinite(n)) {
+      fd.append('capacity', n);
+    }
   }
   if (v.condition) fd.append('condition', v.condition);
 

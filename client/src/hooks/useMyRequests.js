@@ -6,12 +6,12 @@
  * volunteerId === req.user._id, so the dashboard never needs a
  * `mine=1` style flag — the server enforces the scope.
  *
- * Also wraps the two lifecycle actions the volunteer can take from
- * this dashboard:
+ * Also wraps the lifecycle actions the volunteer can take:
+ *   - useCreateRequest  — POST /api/requests
  *   - useCollectRequest — PATCH /api/requests/:id/collect
  *   - useReturnRequest  — PATCH /api/requests/:id/return
  *
- * Both mutations return the updated request. The COLLECT response is
+ * All three mutations return the updated request. The COLLECT response is
  * the SINGLE place the server reveals owner + volunteer contact info
  * (the privacy gate fires on APPROVED + COLLECTED). The hook captures
  * the mutation's `data` so the page can show the contact card right
@@ -67,6 +67,44 @@ export function useMyRequests({
           pagination: { total: 0, page: 1, limit, pages: 1 },
         }
       );
+    },
+  });
+}
+
+/**
+ * Create a new resource request (VOLUNTEER + isVerified only — the
+ * server enforces this gate; the client mirrors it so the button is
+ * disabled before the round-trip). Used by the resource details page
+ * (Module 4.2) for the "Request this resource" CTA.
+ *
+ * The mutation's `data` is the freshly-created request. Server-side
+ * gates that surface as a 4xx:
+ *   - 403  not a VOLUNTEER or not isVerified
+ *   - 400  volunteer tried to request their own resource
+ *   - 404  resource id does not exist
+ *   - 409  resource not AVAILABLE, or volunteer already has an open
+ *          request for it
+ *
+ * On success we invalidate the volunteer's request list AND the
+ * single-resource cache so the details page reflects the new state
+ * (the resource will transition to RESERVED only after the owner
+ * approves — but the volunteer's "My Requests" tab updates immediately).
+ */
+export function useCreateRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ resourceId, moderatorNote } = {}) => {
+      if (!resourceId) {
+        throw new Error('resourceId is required to create a request.');
+      }
+      const body = { resourceId };
+      if (moderatorNote) body.moderatorNote = moderatorNote;
+      const { data } = await api.post('/requests', body);
+      return data?.data?.request || null;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-requests'] });
+      qc.invalidateQueries({ queryKey: ['resource'] });
     },
   });
 }

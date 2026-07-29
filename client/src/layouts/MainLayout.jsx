@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import RoleBadge from '../components/RoleBadge';
 import NotificationBell from '../components/NotificationBell';
 import MobileNavDrawer from '../components/MobileNavDrawer';
 import { navLinkClass } from '../utils/navLinkClass';
@@ -14,7 +13,11 @@ export default function MainLayout() {
     <div className="flex min-h-full flex-col bg-slate-50">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+          <Link
+            to={user?.role === 'OWNER' ? '/owner/resources' : '/'}
+            className="flex items-center gap-2"
+            onClick={() => setMobileMenuOpen(false)}
+          >
             <span
               aria-hidden
               className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-alert-700 text-base font-bold text-white"
@@ -43,7 +46,6 @@ export default function MainLayout() {
           {/* Compact mobile header — the full menu opens in MobileNavDrawer. */}
           <div className="flex items-center gap-1 md:hidden">
             {user && <NotificationBell />}
-            {user && <RoleBadge role={user.role} className="ml-1" />}
             <button
               type="button"
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
@@ -73,14 +75,22 @@ export default function MainLayout() {
       </main>
 
       <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-4 text-xs text-slate-500">
-          <p>
-            &copy; {new Date().getFullYear()} We Help Us — Community Resource
-            Intelligence &amp; Emergency Coordination.
-          </p>
-          <p className="mt-1 italic">
-            “When disaster strikes, communities save themselves first.”
-          </p>
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 text-xs text-slate-500">
+          <div>
+            <p>
+              &copy; {new Date().getFullYear()} We Help Us — Community Resource
+              Intelligence &amp; Emergency Coordination.
+            </p>
+            <p className="mt-1 italic">
+              “When disaster strikes, communities save themselves first.”
+            </p>
+          </div>
+          <Link
+            to="/health"
+            className="shrink-0 text-[10px] text-slate-400 hover:text-slate-600 hover:underline"
+          >
+            Backend Health
+          </Link>
         </div>
       </footer>
     </div>
@@ -90,43 +100,69 @@ export default function MainLayout() {
 function DesktopNavLinks({ user }) {
   return (
     <>
-      <NavLink to="/" end className={({ isActive }) => navLinkClass(isActive)}>
-        Home
-      </NavLink>
-      <NavLink to="/health" className={({ isActive }) => navLinkClass(isActive)}>
-        Health
-      </NavLink>
+      {/* Home is only shown when logged out — logged-in users land on
+          their dashboard surface (logo link handles the OWNER case). */}
+      {!user && (
+        <NavLink to="/" end className={({ isActive }) => navLinkClass(isActive)}>
+          Home
+        </NavLink>
+      )}
 
       {user ? (
         <>
-          <NavLink to="/resources" className={({ isActive }) => navLinkClass(isActive)}>
-            Resources
-          </NavLink>
-          <NavLink to="/resources/map" className={({ isActive }) => navLinkClass(isActive)}>
-            Map
-          </NavLink>
+          {user.role === 'VOLUNTEER' && (
+            <>
+              {/* `end` here so the "List" link does NOT highlight when
+                  the user is on /resources/map (or any other /resources/*
+                  sub-route). Without `end`, react-router treats /resources
+                  as a prefix match and lights up the sibling "Map" tab. */}
+              <NavLink
+                to="/resources"
+                end
+                className={({ isActive }) => navLinkClass(isActive)}
+              >
+                List
+              </NavLink>
+              <NavLink to="/resources/map" className={({ isActive }) => navLinkClass(isActive)}>
+                Map
+              </NavLink>
+            </>
+          )}
           {user.role === 'VOLUNTEER' && (
             <NavLink to="/volunteer/requests" className={({ isActive }) => navLinkClass(isActive)}>
               My Requests
             </NavLink>
           )}
           {user.role === 'OWNER' && (
-            <NavLink to="/owner/requests" className={({ isActive }) => navLinkClass(isActive)}>
-              Incoming
-            </NavLink>
+            <>
+              <NavLink to="/owner/resources" className={({ isActive }) => navLinkClass(isActive)}>
+                My Resources
+              </NavLink>
+              <NavLink to="/owner/requests" className={({ isActive }) => navLinkClass(isActive)}>
+                Incoming
+              </NavLink>
+            </>
           )}
           {(user.role === 'MODERATOR' || user.role === 'ADMIN') && (
             <>
               <NavLink to="/moderator" className={({ isActive }) => navLinkClass(isActive)}>Moderation</NavLink>
+              {/* Volunteers directory (Module: Volunteers Tab) — visible
+                  to both MODERATOR (area-scoped view) and ADMIN (global
+                  view). The route dispatches on role inside VolunteersTabDispatcher. */}
+              <NavLink to="/moderator/volunteers" className={({ isActive }) => navLinkClass(isActive)}>Volunteers</NavLink>
               <NavLink to="/analytics" className={({ isActive }) => navLinkClass(isActive)}>Analytics</NavLink>
             </>
+          )}
+          {user.role === 'ADMIN' && (
+            <NavLink to="/admin/moderators" className={({ isActive }) => navLinkClass(isActive)}>
+              Moderators
+            </NavLink>
           )}
           <NotificationBell />
           <NavLink to="/profile" className={({ isActive }) => navLinkClass(isActive)}>
             <span className="hidden sm:inline">{user.name || user.email || 'Profile'}</span>
             <span className="sm:hidden">Profile</span>
           </NavLink>
-          <RoleBadge role={user.role} className="ml-2" />
         </>
       ) : (
         <>
