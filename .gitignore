@@ -36,3 +36,8 @@ coverage/
 plan.txt
 progress.txt
 .puku-cli/
+
+# Demo / showcase artifacts (contain credentials + generated decks)
+demo-credentials.txt
+*.pptx
+!server/scripts/**/*.pptx
