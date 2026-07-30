@@ -206,20 +206,30 @@ async function run() {
   {
     const src = fs.readFileSync(PAGE_PATH, 'utf8');
 
-    // Sub-components present.
+    // Sub-components present. Description as a standalone component
+    // has been folded into DetailsGrid (rendered as the first row),
+    // so it's no longer a top-level function — DescriptionRow IS.
+    // Use a word-boundary regex so we don't false-positive on
+    // "DescriptionRow" containing the substring "Description".
     for (const name of [
       'BackBar',
       'Header',
       'PhotoGallery',
-      'Description',
       'DetailsGrid',
       'ActionRow',
       'VolunteerRequestCTA',
       'LoadingState',
       'ErrorBanner',
     ]) {
-      assert(src.includes(`function ${name}`), `page defines ${name}`);
+      assert(
+        new RegExp(`\\bfunction\\s+${name}\\b`).test(src),
+        `page defines ${name}`
+      );
     }
+    assert(
+      /\bfunction\s+DescriptionRow\b/.test(src),
+      'page defines DescriptionRow (folded into DetailsGrid)'
+    );
 
     // Hook + auth wired.
     assert(/useResource\s*\(/.test(src), 'page calls useResource');
@@ -240,6 +250,48 @@ async function run() {
     assert(/resource\.description/.test(src), 'page reads description');
     assert(/resource\.title/.test(src), 'page reads title');
     assert(/resource\.capacity/.test(src), 'page reads capacity');
+
+    // Description is rendered as the FIRST row of the Details card
+    // (before Category). Source order is what we assert here — the
+    // DescriptionRow push must precede the Category push in the
+    // DetailsGrid body.
+    const descRowIdx = src.indexOf("label: 'Description'");
+    const categoryRowIdx = src.indexOf("label: 'Category'");
+    assert(
+      descRowIdx > 0 && categoryRowIdx > 0 && descRowIdx < categoryRowIdx,
+      'Description row is rendered BEFORE Category in the Details card'
+    );
+    // And: the standalone <Description /> component no longer lives
+    // as a top-level <section> above the grid. We assert by searching
+    // for the JSX call site "<Description text=" — if present at the
+    // top level, that would render a duplicate description block.
+    assert(
+      !/<Description\s+text=/.test(src),
+      'page no longer renders a standalone <Description text=… /> section above the grid'
+    );
+    // See-more toggle on long descriptions.
+    assert(/See more/.test(src),
+      'DescriptionRow renders a "See more" toggle for long text');
+    assert(/See less/.test(src),
+      'DescriptionRow flips the toggle label to "See less" when expanded');
+    assert(/line-clamp-3/.test(src),
+      'DescriptionRow clamps long text to 3 lines via line-clamp-3');
+    assert(/aria-expanded/.test(src),
+      'See more button exposes aria-expanded for screen readers');
+
+    // Map-on-load: page must default to map AND re-assert the map
+    // view once the resource arrives with a real location, so the
+    // user never briefly sees the photo placeholder on first load.
+    assert(/useState\(\s*['"]map['"]\s*\)/.test(src),
+      'photo/map toggle defaults to "map"');
+    assert(
+      /if\s*\(\s*hasLocation\s*\)\s*\{[\s\S]*?setViewMode\(\s*['"]map['"]\s*\)/.test(src),
+      'page re-asserts map view when the resource arrives with a location'
+    );
+    assert(
+      /if\s*\(\s*!\s*resource\s*\)\s*return/.test(src),
+      'photo/map effect short-circuits while the resource is still loading'
+    );
     assert(/resource\.condition/.test(src), 'page reads condition');
     assert(/resource\.areaId/.test(src), 'page reads areaId');
     assert(/resource\.areaName/.test(src), 'page reads areaName (server-populated area label)');
@@ -288,8 +340,8 @@ async function run() {
     //     / moderator view) lives as a full-width row below the
     //     two-column grid. Title + paragraph + button are all
     //     centre-aligned.
-    assert(/useState\(\s*['"]map['"]\s*\)/.test(src),
-      'photo/map toggle defaults to "map"');
+    // (default-to-map is asserted above in section 5 with the
+    // stronger "re-asserts on resource arrival" check.)
     // Toggle order — the button labelled "Show on map" renders BEFORE
     // the button labelled "Photo" in the source. We scan for the
     // inner <button>...</button> nodes and confirm their relative

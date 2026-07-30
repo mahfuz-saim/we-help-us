@@ -93,9 +93,15 @@ export default function ResourceDetailsPage() {
     );
   }, [user, resource]);
 
-  // Photo / map view toggle. Defaults to MAP. Auto-resets to
-  // 'photo' if the resource has no location so the toggle can't get
-  // stuck in an empty-map state.
+  // Photo / map view toggle. Defaults to MAP. The photo fallback
+  // only fires AFTER the resource query has loaded AND the loaded
+  // resource genuinely has no location — otherwise the page would
+  // briefly flash to 'photo' while `query.data` is still resolving
+  // (since `hasLocation` is false during the load), and then never
+  // snap back to 'map' when the real resource with its real
+  // coordinates arrives. We also re-assert 'map' once a location-
+  // bearing resource resolves, so a stale 'photo' selection can't
+  // survive a navigation between two resources.
   const hasLocation =
     !!resource &&
     !!resource.location &&
@@ -105,10 +111,17 @@ export default function ResourceDetailsPage() {
     Number.isFinite(resource.location.coordinates[1]);
   const [viewMode, setViewMode] = useState('map');
   useEffect(() => {
-    if (!hasLocation && viewMode === 'map') {
+    if (!resource) return;
+    if (hasLocation) {
+      if (viewMode !== 'map') setViewMode('map');
+    } else if (viewMode === 'map') {
       setViewMode('photo');
     }
-  }, [hasLocation, viewMode]);
+    // viewMode intentionally omitted from deps — we only want to
+    // react to changes in (resource, hasLocation), not to the
+    // toggle clicks themselves (which would re-trigger this effect).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resource, hasLocation]);
 
   // Full address chain (district > upazila > union > ...). Fetches
   // from GET /api/areas/:id via the existing useAreaChain hook.
@@ -148,7 +161,6 @@ export default function ResourceDetailsPage() {
       {resource && (
         <>
           <Header resource={resource} />
-          <Description text={resource.description} />
 
           <div className="grid items-start gap-6 md:grid-cols-2">
             <DetailsGrid
@@ -392,24 +404,59 @@ function PhotoGallery({ photos, title, category }) {
   );
 }
 
-// ── Description ──────────────────────────────────────────────────────────
+// ── Details grid ─────────────────────────────────────────────────────────
 
-function Description({ text }) {
-  if (!text) return null;
+// DescriptionRow — inline collapsible description used inside the
+// Details card. Short descriptions render as a single block. Long
+// descriptions clamp to 3 lines behind a "See more" toggle; clicking
+// expands to the full text and the button label flips to "See less".
+//
+// Threshold is character-based (200 chars) rather than line-count
+// because line count varies with viewport / font. The clamp is a
+// CSS line-clamp so the underlying DOM stays the same — the
+// "expanded" state just removes the clamp utility.
+const DESCRIPTION_CLAMP_CHARS = 200;
+
+function DescriptionRow({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  const longText = (text || '').length > DESCRIPTION_CLAMP_CHARS;
   return (
-    <section>
-      <h2 className="text-base font-semibold text-slate-900">Description</h2>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+    <div>
+      <p
+        className={
+          'whitespace-pre-wrap text-sm leading-relaxed text-slate-700 ' +
+          (longText && !expanded ? 'line-clamp-3' : '')
+        }
+      >
         {text}
       </p>
-    </section>
+      {longText && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-1 text-xs font-medium text-alert-700 hover:text-alert-800 hover:underline"
+        >
+          {expanded ? 'See less' : 'See more'}
+        </button>
+      )}
+    </div>
   );
 }
 
-// ── Details grid ─────────────────────────────────────────────────────────
-
 function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, chainNodes }) {
   const rows = [];
+  // Description lives as the FIRST row of the Details card — before
+  // Category — so volunteers see what the resource is for first.
+  // Long descriptions collapse to 3 lines with a "See more" toggle
+  // that expands inline; the toggle is hidden entirely for short
+  // descriptions so we don't add visual noise for the common case.
+  if (resource.description) {
+    rows.push({
+      label: 'Description',
+      value: <DescriptionRow text={resource.description} />,
+    });
+  }
   rows.push({
     label: 'Category',
     value: (
