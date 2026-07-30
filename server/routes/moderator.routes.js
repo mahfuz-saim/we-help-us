@@ -22,7 +22,12 @@ const {
   verifyVolunteerBodySchema,
   setEmergencyModeBodySchema,
 } = require('../validators/moderator.validators');
+const {
+  createActivationBodySchema,
+  activationIdParamsSchema,
+} = require('../validators/emergency.validators');
 const moderatorCtrl = require('../controllers/moderator.controller');
+const emergencyCtrl = require('../controllers/emergency.controller');
 
 const router = express.Router();
 
@@ -82,6 +87,25 @@ router.patch(
   '/emergency-mode',
   validate(setEmergencyModeBodySchema),
   asyncHandler(moderatorCtrl.setEmergencyMode)
+);
+
+// POST /api/moderator/emergency-activations — Module 9.
+// Moderator-side activation endpoint with full hierarchy + circle
+// support. Mirrors the volunteer POST shape but locks rootAreaId to
+// `req.user.areaId` server-side.
+router.post(
+  '/emergency-activations',
+  validate(createActivationBodySchema),
+  asyncHandler(emergencyCtrl.createModeratorActivation)
+);
+
+// PATCH /api/moderator/emergency-activations/:id/deactivate —
+// Module 9. Mirrors the volunteer-side deactivate path; the
+// controller authorises moderators against the rootAreaId chain.
+router.patch(
+  '/emergency-activations/:id/deactivate',
+  validate(activationIdParamsSchema, 'params'),
+  asyncHandler(emergencyCtrl.deactivateActivation)
 );
 
 module.exports = router;

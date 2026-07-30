@@ -41,6 +41,11 @@
  *      /resources/:id. Module 5.4's owner surface populates the
  *      resource; that's outside this module's scope.
  *
+ *   6. Emergency shortcut — the page header carries an "Open Emergency"
+ *      button that links to the dedicated /volunteer/emergency surface
+ *      (Module 9). Emergency activation / deactivation no longer lives
+ *      here — see VolunteerEmergencyPage.jsx.
+ *
  * Privacy boundary (KEY DESIGN REMINDER):
  *   - The page source NEVER calls /users/:id or /auth/me. Owner/
  *     volunteer contact info only arrives via the response, and only
@@ -59,7 +64,7 @@
  *   below the card surfaces the underlying state for clarity.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -207,7 +212,7 @@ export default function VolunteerDashboardPage() {
 
 function Header() {
   return (
-    <header className="flex items-end justify-between gap-3">
+    <header className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           My Requests
@@ -218,6 +223,16 @@ function Header() {
           picked the resource up.
         </p>
       </div>
+      {/* Shortcut to the dedicated emergency surface (Module 9). The
+          Emergency page hosts activation + per-row deactivate; this
+          page is now request-only. */}
+      <Link
+        to="/volunteer/emergency"
+        className="inline-flex items-center gap-2 rounded-md border border-alert-300 bg-alert-50 px-3 py-2 text-sm font-semibold text-alert-800 hover:border-alert-400 hover:bg-alert-100 min-h-[44px]"
+      >
+        <span aria-hidden>⚠</span>
+        <span>Open Emergency</span>
+      </Link>
     </header>
   );
 }

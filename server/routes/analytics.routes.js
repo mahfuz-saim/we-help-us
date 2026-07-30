@@ -33,6 +33,7 @@ const {
   coverageByVillageQuerySchema,
 } = require('../validators/analytics.validators');
 const ctrl = require('../controllers/analytics.controller');
+const emergencyCtrl = require('../controllers/emergency.controller');
 
 const router = express.Router();
 
@@ -67,6 +68,15 @@ router.get(
   '/coverage-by-village',
   validate(coverageByVillageQuerySchema, 'query'),
   asyncHandler(ctrl.getCoverageByVillage)
+);
+
+// GET /api/analytics/emergency-map — Module 9.
+// Read-only payload for the analytics page's `<EmergencyMapCard>`.
+// Returns all active activations in the caller's scope (moderator)
+// or globally (admin). No query params.
+router.get(
+  '/emergency-map',
+  asyncHandler(emergencyCtrl.getEmergencyMap)
 );
 
 module.exports = router;

@@ -125,6 +125,11 @@ function DesktopNavLinks({ user }) {
               My Requests
             </NavLink>
           )}
+          {user.role === 'VOLUNTEER' && (
+            <NavLink to="/volunteer/emergency" className={({ isActive }) => navLinkClass(isActive)}>
+              Emergency
+            </NavLink>
+          )}
           {user.role === 'OWNER' && (
             <>
               <NavLink to="/owner/resources" className={({ isActive }) => navLinkClass(isActive)}>

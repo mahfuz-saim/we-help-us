@@ -65,6 +65,7 @@ const TEST_DB = `whudbg_63_${Date.now()}_${Math.random()
 const { createApp } = require('../app');
 const User = require('../models/User');
 const Area = require('../models/Area');
+const EmergencyActivation = require('../models/EmergencyActivation');
 const { signJwt } = require('../utils/jwt');
 
 let server;
@@ -418,21 +419,28 @@ async function run() {
     'full PATCH response has NO email/phone/password leak anywhere'
   );
 
-  // DB persisted.
+  // DB persisted — into EmergencyActivation (Module 9.3 shim), NOT
+// Area.emergencyMode. The 6.3 wire shape is preserved verbatim but
+// the storage layer migrated.
+  const dbActivation = await EmergencyActivation.findOne({
+    rootAreaId: inAreaId,
+    activatedBy: modInArea._id,
+    isActive: true,
+  });
+  assert(dbActivation, 'DB: EmergencyActivation row exists (shim storage)');
+  assert(
+    dbActivation.activatedByRole === 'MODERATOR',
+    'DB: row.activatedByRole=MODERATOR'
+  );
+  assert(
+    dbActivation.scope === EmergencyActivation.SCOPES.HIERARCHY,
+    'DB: row.scope=HIERARCHY'
+  );
+  // Area.emergencyMode is intentionally NOT used as storage any more.
   const dbArea = await Area.findById(inAreaId);
   assert(
-    dbArea.emergencyMode.isActive === true,
-    'DB: in-area.emergencyMode.isActive persisted as true'
-  );
-  assert(
-    dbArea.emergencyMode.activatedBy &&
-      dbArea.emergencyMode.activatedBy.toString() ===
-        modInArea._id.toString(),
-    'DB: in-area.emergencyMode.activatedBy persisted as ModInArea'
-  );
-  assert(
-    dbArea.emergencyMode.activatedAt instanceof Date,
-    'DB: in-area.emergencyMode.activatedAt persisted as a Date'
+    !dbArea.emergencyMode || dbArea.emergencyMode.isActive !== true,
+    'DB: Area.emergencyMode NOT used as storage (shim writes only to EmergencyActivation)'
   );
 
   // ── 6. GET reads the same shape ─────────────────────────────────────
@@ -455,8 +463,12 @@ async function run() {
   // ── 7. Idempotency on activate ──────────────────────────────────────
   section('7. idempotency — re-activating is a no-op');
 
-  const dbBefore = await Area.findById(inAreaId);
-  const activatedAtBefore = dbBefore.emergencyMode.activatedAt.getTime();
+  const dbBefore = await EmergencyActivation.findOne({
+    rootAreaId: inAreaId,
+    activatedBy: modInArea._id,
+    isActive: true,
+  });
+  const activatedAtBefore = dbBefore.activatedAt.getTime();
 
   // Re-activate after a brief wait so any save would move updatedAt
   // and we'd see it in the diff.
@@ -473,14 +485,17 @@ async function run() {
     're-activate response still isActive=true'
   );
 
-  const dbAfter = await Area.findById(inAreaId);
+  const dbAfter = await EmergencyActivation.findOne({
+    rootAreaId: inAreaId,
+    activatedBy: modInArea._id,
+    isActive: true,
+  });
   assert(
-    dbAfter.emergencyMode.activatedAt.getTime() === activatedAtBefore,
+    dbAfter.activatedAt.getTime() === activatedAtBefore,
     'idempotent: activatedAt unchanged (no DB write)'
   );
   assert(
-    dbAfter.emergencyMode.activatedBy.toString() ===
-      modInArea._id.toString(),
+    dbAfter.activatedBy.toString() === modInArea._id.toString(),
     'idempotent: activatedBy unchanged'
   );
 
@@ -514,20 +529,13 @@ async function run() {
     'deactivate response has NO email/phone/password leak'
   );
 
-  // DB persisted.
-  const dbDeactivated = await Area.findById(inAreaId);
-  assert(
-    dbDeactivated.emergencyMode.isActive === false,
-    'DB: in-area.emergencyMode.isActive persisted as false'
-  );
-  assert(
-    dbDeactivated.emergencyMode.activatedAt === null,
-    'DB: in-area.emergencyMode.activatedAt cleared to null'
-  );
-  assert(
-    dbDeactivated.emergencyMode.activatedBy === null,
-    'DB: in-area.emergencyMode.activatedBy cleared to null'
-  );
+  // DB persisted — into EmergencyActivation row with isActive=false.
+  const dbDeactivated = await EmergencyActivation.findOne({
+    rootAreaId: inAreaId,
+    activatedBy: modInArea._id,
+    isActive: true,
+  });
+  assert(!dbDeactivated, 'DB: no active EmergencyActivation row after deactivate');
 
   // GET reflects the deactivated state.
   const getInactive = await http_('GET', '/api/moderator/emergency-mode', {

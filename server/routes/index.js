@@ -16,6 +16,7 @@ const requestRoutes = require('./request.routes');
 const moderatorRoutes = require('./moderator.routes');
 const notificationRoutes = require('./notification.routes');
 const analyticsRoutes = require('./analytics.routes'); // Module 8.1
+const emergencyRoutes = require('./emergency.routes'); // Module 9
 
 const router = express.Router();
 
@@ -29,5 +30,6 @@ router.use('/requests', requestRoutes);    // Module 5.2
 router.use('/moderator', moderatorRoutes); // Module 6.1
 router.use('/notifications', notificationRoutes); // Module 7.2
 router.use('/analytics', analyticsRoutes); // Module 8.1
+router.use('/emergency-activations', emergencyRoutes); // Module 9
 
 module.exports = router;

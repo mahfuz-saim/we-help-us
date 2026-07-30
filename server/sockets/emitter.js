@@ -72,9 +72,39 @@ function emitResourceStatusUpdate({ resourceId, status, areaId }) {
   safeEmit(PUBLIC_RESOURCES_ROOM, 'resource:status', payload);
 }
 
+/**
+ * Module 9 — emit a new emergency activation to BOTH the area-specific
+ * room and the public room. The map view + the analytics page +
+ * resource list pages subscribe to `emergency:activated` so they can
+ * react in real-time (the bell + toast already work via the
+ * per-user `notification:new` event from `safeCreate`).
+ *
+ * The payload is the privacy-stripped public shape from
+ * `EmergencyActivation.publicShape` — it includes `message` (free
+ * text the activator wrote — intentionally NOT sanitised since
+ * phone numbers are the coordination channel) but never email /
+ * phone / password. The actor's id is exposed as a string; the
+ * client can call its user directory endpoint if it needs the
+ * name.
+ *
+ * Tolerant: a Socket.io outage MUST NOT break the activation.
+ */
+function emitEmergencyActivated(activationPayload) {
+  if (!activationPayload) return;
+  const rootAreaId =
+    activationPayload.rootAreaId || activationPayload.areaId || null;
+  if (rootAreaId) {
+    safeEmit(areaRoom(rootAreaId), 'emergency:activated', activationPayload);
+  }
+  // The global room is the safety net — clients that aren't area-
+  // scoped (analytics page) get the same payload here.
+  safeEmit(PUBLIC_RESOURCES_ROOM, 'emergency:activated', activationPayload);
+}
+
 module.exports = {
   emitNotificationToUser,
   emitResourceStatusUpdate,
+  emitEmergencyActivated,
   userRoom,
   areaRoom,
   PUBLIC_RESOURCES_ROOM,

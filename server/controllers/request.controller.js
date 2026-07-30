@@ -64,6 +64,7 @@ const Resource = require('../models/Resource');
 const User = require('../models/User');
 const notificationTriggers = require('../services/notificationTriggers');
 const { emitResourceStatusUpdate } = require('../sockets/emitter');
+const { isAreaInEmergency } = require('../utils/emergencyScope');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -131,12 +132,27 @@ function contactInfo(user) {
  * runs when emergency mode might be active — a single extra round-trip
  * in the worst case, zero in the common path.
  */
+/**
+ * Module 9 — delegate to the centralized scope helper. The volunteer
+ * dashboard gates the owner-contact-reveal card on this signal. The
+ * helper handles HIERARCHY (any descendant or ancestor of the
+ * resource's area) + CIRCLE (volunteer location inside an active
+ * circle) modes.
+ *
+ * The contract is unchanged from Module 6.3 — returns boolean,
+ * false when any input is missing. Caching is handled by the
+ * helper's request-scoped memo.
+ */
 async function computeAreaEmergencyActive(populated, obj) {
   if (!populated || !populated.resource) return false;
   const resource = populated.resource;
-  if (!resource.areaId || !resource.areaId._id) return false;
-  const areaEmergency = resource.areaId.emergencyMode;
-  if (!areaEmergency || areaEmergency.isActive !== true) return false;
+  if (!resource.areaId) return false;
+
+  const resourceAreaId =
+    resource.areaId && resource.areaId._id
+      ? resource.areaId._id
+      : resource.areaId;
+  if (!resourceAreaId) return false;
 
   const volunteerId = (() => {
     if (populated.volunteer && populated.volunteer._id) {
@@ -148,11 +164,33 @@ async function computeAreaEmergencyActive(populated, obj) {
   if (!volunteerId) return false;
 
   const volunteer = await User.findById(volunteerId)
-    .select('areaId')
+    .select('areaId location')
     .lean();
-  if (!volunteer || !volunteer.areaId) return false;
+  if (!volunteer) return false;
 
-  return volunteer.areaId.toString() === resource.areaId._id.toString();
+  // Module 9: the original "volunteer.areaId === resource.areaId"
+  // semantics is replaced by "any active emergency activation covers
+  // either area or the volunteer's location". The new helper covers
+  // the resource's areaId (HIERARCHY: ancestors of the resource's
+  // area are valid roots; CIRCLE: resource.areaId's location is not
+  // guaranteed, so we test the volunteer's location for the circle
+  // check).
+  let lng = null;
+  let lat = null;
+  if (
+    volunteer.location &&
+    Array.isArray(volunteer.location.coordinates) &&
+    Number.isFinite(volunteer.location.coordinates[0]) &&
+    Number.isFinite(volunteer.location.coordinates[1])
+  ) {
+    lng = volunteer.location.coordinates[0];
+    lat = volunteer.location.coordinates[1];
+  }
+  return await isAreaInEmergency({
+    areaId: resourceAreaId,
+    lat,
+    lng,
+  });
 }
 
 async function publicRequest(doc, { revealContacts = false, populated } = {}) {
@@ -284,12 +322,11 @@ async function publicRequest(doc, { revealContacts = false, populated } = {}) {
 // Convenience: load the request + populate owner / volunteer / resource.
 // Done in one shot so every action handler can share the same shape.
 //
-// `resourceId` is deep-populated: in addition to the public summary
-// fields we also populate `resourceId.areaId.emergencyMode` so that
-// `publicRequest()` can branch on the area-level emergency flag
-// (Module 6.3) without an extra round-trip. The resource subdoc still
-// only carries the originally-selected fields; only `areaId` is
-// expanded into a tiny subdoc with `emergencyMode`.
+// Module 9: the deep-populate on `resourceId.areaId.emergencyMode`
+// is no longer needed — the centralized `isAreaInEmergency` helper
+// reads from `EmergencyActivation` directly. We still populate
+// `resourceId.areaId` (just `_id` + `name`) so the response can
+// render the address label.
 async function loadRequestPopulated(id) {
   const doc = await ResourceRequest.findById(id)
     .populate('ownerId', 'name email phone')
@@ -299,7 +336,7 @@ async function loadRequestPopulated(id) {
       select: 'category title status ownerId location areaId',
       populate: {
         path: 'areaId',
-        select: 'emergencyMode',
+        select: '_id name level',
       },
     });
   if (!doc) return null;

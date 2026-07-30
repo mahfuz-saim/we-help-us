@@ -82,6 +82,7 @@ const { createApp } = require('../app');
 const User = require('../models/User');
 const Resource = require('../models/Resource');
 const ResourceRequest = require('../models/ResourceRequest');
+const EmergencyActivation = require('../models/EmergencyActivation');
 const { signJwt } = require('../utils/jwt');
 
 let server;
@@ -958,17 +959,20 @@ async function run() {
       '  pre-flight: areaEmergencyActive === false in response'
     );
 
-    // Activate emergency mode in the shared area.
-    await Area.updateOne(
-      { _id: emAreaId },
-      {
-        $set: {
-          'emergencyMode.isActive': true,
-          'emergencyMode.activatedAt': new Date(),
-          'emergencyMode.activatedBy': modWithArea._id,
-        },
-      }
-    );
+    // Activate emergency mode in the shared area. Module 9 reads
+    // from the EmergencyActivation collection, NOT Area.emergencyMode
+    // (the 6.3 wire shape is preserved but storage moved).
+    await EmergencyActivation.deleteMany({});
+    await EmergencyActivation.create({
+      rootAreaId: emAreaId,
+      level: 'UNION',
+      scope: 'HIERARCHY',
+      descendantAreaIds: [emAreaId],
+      message: 'test emergency',
+      activatedBy: modWithArea._id,
+      activatedByRole: 'MODERATOR',
+      isActive: true,
+    });
 
     // Same-area volunteer NOW sees contact info, even though status is
     // APPROVED (not COLLECTED).
@@ -1019,16 +1023,7 @@ async function run() {
     );
 
     // Deactivate emergency mode — reveal must close.
-    await Area.updateOne(
-      { _id: emAreaId },
-      {
-        $set: {
-          'emergencyMode.isActive': false,
-          'emergencyMode.activatedAt': null,
-          'emergencyMode.activatedBy': null,
-        },
-      }
-    );
+    await EmergencyActivation.updateMany({}, { isActive: false });
     const afterEmergency = await http_('GET', `/api/requests/${emRequest._id}`, {
       token: signJwt({ id: emVolunteer._id.toString(), role: emVolunteer.role }),
     });

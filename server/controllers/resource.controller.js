@@ -35,6 +35,7 @@ const Resource = require('../models/Resource');
 const User = require('../models/User');
 const { cloudinary, isCloudinaryConfigured } = require('../config/cloudinary');
 const { FORBIDDEN_FIELDS } = require('../validators/resource.validators');
+const { isAreaInEmergency, isAreaInEmergencyBulk } = require('../utils/emergencyScope');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -44,8 +45,17 @@ const MAX_RADIUS_METERS = 100000; // 100 km
 // Owner-facing fields explicitly stripped from list/single responses.
 // This is the privacy boundary — we strip on the way OUT, not on the
 // way IN, so the underlying record keeps its integrity.
-function publicResource(doc) {
+//
+// Module 9 — `areaEmergencyActive` is computed by the controllers
+// (listResources / getResource) and passed in via the optional
+// `_emergencyActive` field on the doc, OR via the second argument
+// `extra`. Default false so older call sites keep working.
+function publicResource(doc, extra = {}) {
   const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  const emergencyActive =
+    typeof obj._emergencyActive === 'boolean'
+      ? obj._emergencyActive
+      : extra.emergencyActive === true;
   // After `.populate('ownerId', 'name')` the `ownerId` field becomes a
   // populated subdoc like `{ _id, name }`. When unpopulated (the
   // create / list / update paths do not populate), it's still a raw
@@ -116,6 +126,9 @@ function publicResource(doc) {
     location: obj.location || null,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
+    // Module 9: emergency-active signal. Bulk-evaluated by the
+    // controllers; default false so older call sites keep working.
+    areaEmergencyActive: emergencyActive,
     // intentionally omitted: __v, _id, owner contact info
   };
 }
@@ -298,8 +311,33 @@ async function listResources(req, res, next) {
       Resource.countDocuments(filter),
     ]);
 
+    // Module 9 — annotate each row with the emergency-active flag.
+    // ONE bulk query handles HIERARCHY (per-area ancestor walk) +
+    // ONE for CIRCLE regardless of page size. The helper's request-
+    // scoped memo collapses duplicate (areaId, lat, lng) tuples.
+    const emergencyItems = docs.map((d) => {
+      const areaId = d.areaId
+        ? (typeof d.areaId.toString === 'function' ? d.areaId.toString() : d.areaId)
+        : null;
+      const coords = d.location && Array.isArray(d.location.coordinates)
+        ? d.location.coordinates
+        : null;
+      return {
+        areaId,
+        lat: Array.isArray(coords) ? coords[1] : null,
+        lng: Array.isArray(coords) ? coords[0] : null,
+      };
+    });
+    const emergencyMap = await isAreaInEmergencyBulk(emergencyItems);
+
     return ok(res, {
-      resources: docs.map(publicResource),
+      resources: docs.map((d) => {
+        const areaIdStr = d.areaId
+          ? (typeof d.areaId.toString === 'function' ? d.areaId.toString() : String(d.areaId))
+          : null;
+        const flag = areaIdStr ? emergencyMap.get(areaIdStr) === true : false;
+        return publicResource(d, { emergencyActive: flag });
+      }),
       pagination: {
         page,
         limit,
@@ -326,7 +364,25 @@ async function getResource(req, res, next) {
     if (!doc) {
       throw new ApiError(404, 'Resource not found');
     }
-    return ok(res, { resource: publicResource(doc) }, 'Resource fetched');
+    // Module 9 — single-row emergency check.
+    const coords = doc.location && Array.isArray(doc.location.coordinates)
+      ? doc.location.coordinates
+      : null;
+    const areaIdRaw = doc.areaId
+      ? (doc.areaId._id ? doc.areaId._id : doc.areaId)
+      : null;
+    const flag = areaIdRaw
+      ? await isAreaInEmergency({
+          areaId: areaIdRaw,
+          lat: Array.isArray(coords) ? coords[1] : null,
+          lng: Array.isArray(coords) ? coords[0] : null,
+        })
+      : false;
+    return ok(
+      res,
+      { resource: publicResource(doc, { emergencyActive: flag }) },
+      'Resource fetched'
+    );
   } catch (err) {
     next(err);
   }
@@ -378,7 +434,22 @@ async function updateResource(req, res, next) {
     doc.set(updates);
     await doc.save();
 
-    return ok(res, { resource: publicResource(doc) }, 'Resource updated');
+    // Module 9 — surface the emergency-active flag on update too.
+    const coords = doc.location && Array.isArray(doc.location.coordinates)
+      ? doc.location.coordinates
+      : null;
+    const flag = doc.areaId
+      ? await isAreaInEmergency({
+          areaId: doc.areaId,
+          lat: Array.isArray(coords) ? coords[1] : null,
+          lng: Array.isArray(coords) ? coords[0] : null,
+        })
+      : false;
+    return ok(
+      res,
+      { resource: publicResource(doc, { emergencyActive: flag }) },
+      'Resource updated'
+    );
   } catch (err) {
     next(err);
   }

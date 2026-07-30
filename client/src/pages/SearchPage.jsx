@@ -41,6 +41,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import AreaCascadeFilter from '../components/AreaCascadeFilter';
+import EmergencyActiveBadge from '../components/emergency/EmergencyActiveBadge';
 import { useAuth } from '../context/AuthContext';
 import { useResourceSearch } from '../hooks/useResourceSearch';
 import {
@@ -445,6 +446,7 @@ function ResourceCard({ resource, user }) {
               {resource.title || 'Untitled resource'}
             </h2>
             {status && <StatusBadge status={status} />}
+            <EmergencyActiveBadge show={resource.areaEmergencyActive === true} />
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
             <span>{getCategoryLabel(resource.category)}</span>

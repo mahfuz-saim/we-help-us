@@ -51,7 +51,9 @@ const Resource = require('../models/Resource');
 const ResourceRequest = require('../models/ResourceRequest');
 const User = require('../models/User');
 const Area = require('../models/Area');
+const EmergencyActivation = require('../models/EmergencyActivation');
 const { publicResource } = require('./resource.controller');
+const { descendantAreaIds: descendantAreaIdsForShim } = require('../utils/emergencyScope');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -485,23 +487,49 @@ async function getEmergencyMode(req, res, next) {
         'You must be assigned to an area to view emergency-mode state.'
       );
     }
-    const area = await Area.findById(req.user.areaId).populate(
-      'emergencyMode.activatedBy'
-    );
+    const area = await Area.findById(req.user.areaId);
     if (!area) {
       throw new ApiError(
         404,
         'Your assigned area could not be found. Contact an admin.'
       );
     }
-    return ok(res, publicEmergencyMode(area));
+    // Module 9: state lives on the EmergencyActivation collection, not
+    // on Area.emergencyMode. Read the most recently-activated row
+    // owned by this moderator that targets this area.
+    const activeRow = await EmergencyActivation.findOne({
+      rootAreaId: req.user.areaId,
+      activatedBy: req.user._id,
+      activatedByRole: EmergencyActivation.ACTOR_ROLES.MODERATOR,
+      isActive: true,
+    }).sort({ activatedAt: -1 });
+
+    let payload;
+    if (activeRow) {
+      const populated = await User.findById(activeRow.activatedBy);
+      payload = {
+        areaId: req.user.areaId.toString(),
+        isActive: true,
+        activatedAt: activeRow.activatedAt,
+        activatedBy: populated ? publicUserDirectory(populated) : null,
+      };
+    } else {
+      payload = {
+        areaId: req.user.areaId.toString(),
+        isActive: false,
+        activatedAt: null,
+        activatedBy: null,
+      };
+    }
+    return ok(res, payload);
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * PATCH /api/moderator/emergency-mode — Module 6.3.
+ * PATCH /api/moderator/emergency-mode — Module 6.3 (back-compat shim
+ * for Module 9).
  *
  * Body: `{ isActive: boolean, note?: string }`.
  *
@@ -513,20 +541,23 @@ async function getEmergencyMode(req, res, next) {
  *     assigned moderator).
  *   - The area is resolved from `req.user.areaId`. If the area has
  *     since been deleted (admin removed the union), 404.
- *   - On TRUE:  stamp `activatedAt` = now + `activatedBy` =
- *     req.user. Idempotent: re-activating when already active is a
- *     no-op (returns the current state, no overwrite of activatedAt
- *     / activatedBy).
- *   - On FALSE: clear `activatedAt` + `activatedBy` to null. Idempotent
- *     when already inactive.
+ *   - On TRUE: upsert an `EmergencyActivation` row with `scope:
+ *     'HIERARCHY'`, `rootAreaId = req.user.areaId`, `activatedBy =
+ *     req.user`, `activatedByRole = 'MODERATOR'`. Idempotent on re-
+ *     activation.
+ *   - On FALSE: find the matching active row and soft-delete it
+ *     (`isActive: false`, `expiresAt = now`). Idempotent on re-
+ *     deactivation.
  *
- * The `note` field is accepted (and echoed in the response) for
- * forward compat with the future audit-log work (Phase 7). The Area
- * schema has no `note` field — the note is NOT persisted, exactly
- * like the 6.2 `moderatorNote`.
+ *   The response shape matches the 6.3 contract byte-for-byte so
+ *   `useEmergencyMode` and the 6.3 smoke keep working unchanged.
+ *   `note` is accepted (echoed in the response) for forward compat
+ *   with the future audit-log work.
  *
- * Privacy: response uses `publicEmergencyMode()` which exposes
- * `activatedBy` as `toSafeObject()` (no email / phone / password).
+ * Internal storage moved to the `EmergencyActivation` collection
+ * (Module 9). The legacy `Area.emergencyMode` field is no longer
+ * written; existing rows can be ignored. The transition is
+ * invisible to existing clients.
  */
 async function setEmergencyMode(req, res, next) {
   try {
@@ -545,31 +576,58 @@ async function setEmergencyMode(req, res, next) {
       );
     }
 
-    const wasActive = area.emergencyMode && area.emergencyMode.isActive === true;
-    if (isActive && !wasActive) {
-      area.emergencyMode = {
-        isActive: true,
-        activatedAt: new Date(),
-        activatedBy: req.user._id,
-      };
-      await area.save();
-    } else if (!isActive && wasActive) {
-      area.emergencyMode = {
-        isActive: false,
-        activatedAt: null,
-        activatedBy: null,
-      };
-      await area.save();
+    // Upsert / soft-delete the canonical Module 9 row. The shim
+    // owns ONE row per moderator area so we can also surface the
+    // current state from `GET /api/moderator/emergency-mode`
+    // without scanning the whole collection.
+    let activeRow = await EmergencyActivation.findOne({
+      rootAreaId: req.user.areaId,
+      activatedBy: req.user._id,
+      activatedByRole: EmergencyActivation.ACTOR_ROLES.MODERATOR,
+      isActive: true,
+    }).sort({ activatedAt: -1 });
+
+    if (isActive) {
+      if (!activeRow) {
+        const descendantIds = await descendantAreaIdsForShim(req.user.areaId);
+        activeRow = await EmergencyActivation.create({
+          rootAreaId: req.user.areaId,
+          level: area.level,
+          scope: EmergencyActivation.SCOPES.HIERARCHY,
+          descendantAreaIds: descendantIds,
+          message: (note || '').trim() || 'Emergency mode activated by moderator.',
+          activatedBy: req.user._id,
+          activatedByRole: EmergencyActivation.ACTOR_ROLES.MODERATOR,
+          isActive: true,
+        });
+      }
+    } else if (activeRow) {
+      await EmergencyActivation.findOneAndUpdate(
+        { _id: activeRow._id, isActive: true },
+        { $set: { isActive: false, expiresAt: new Date() } }
+      );
+      activeRow = null;
     }
-    // No-op when `isActive === wasActive` (idempotent).
 
     // Re-fetch with the activatedBy populated so the response carries
-    // the actor's public User shape.
-    const fresh = await Area.findById(area._id).populate(
-      'emergencyMode.activatedBy'
-    );
-    const payload = publicEmergencyMode(fresh);
-    if (note !== undefined) payload.note = note; // forward-compat echo
+    // the actor's public User shape — the shim response is the 6.3
+    // contract, so we project to it manually.
+    let activatedByPublic = null;
+    let activatedAt = null;
+    if (activeRow) {
+      // NOT .lean() — the toJSON transform adds the string `id`
+      // field that `publicUserDirectory` reads.
+      const populated = await User.findById(activeRow.activatedBy);
+      activatedByPublic = populated ? publicUserDirectory(populated) : null;
+      activatedAt = activeRow.activatedAt;
+    }
+    const payload = {
+      areaId: req.user.areaId.toString(),
+      isActive: !!activeRow,
+      activatedAt,
+      activatedBy: activatedByPublic,
+    };
+    if (note !== undefined) payload.note = note;
     return ok(
       res,
       payload,

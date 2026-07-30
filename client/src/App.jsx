@@ -14,6 +14,7 @@ import SearchPage from './pages/SearchPage.jsx';
 import ResourceDetailsPage from './pages/ResourceDetailsPage.jsx';
 import MapViewPage from './pages/MapViewPage.jsx';
 import VolunteerDashboardPage from './pages/volunteer/VolunteerDashboardPage.jsx';
+import VolunteerEmergencyPage from './pages/volunteer/VolunteerEmergencyPage.jsx';
 import ModeratorDashboardPage from './pages/moderator/ModeratorDashboardPage.jsx';
 import ModeratorVolunteersListPage from './pages/moderator/ModeratorVolunteersListPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
@@ -89,6 +90,13 @@ export default function App() {
           <Route
             path="volunteer/requests"
             element={<VolunteerDashboardPage />}
+          />
+          {/* Volunteer emergency surface (Module 9) — dedicated page
+              for activating / deactivating emergency activations.
+              Sibling of the requests dashboard. */}
+          <Route
+            path="volunteer/emergency"
+            element={<VolunteerEmergencyPage />}
           />
         </Route>
 
