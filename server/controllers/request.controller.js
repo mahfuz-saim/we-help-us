@@ -113,7 +113,49 @@ function contactInfo(user) {
  *
  * The caller decides `revealContacts`; this helper stays dumb.
  */
-function publicRequest(doc, { revealContacts = false, populated } = {}) {
+
+/**
+ * Compute whether emergency mode is active in the resource's area AND
+ * the volunteer's area matches it. Used by `publicRequest` to widen
+ * the contact-reveal gate during area-level emergencies (Module 6.3).
+ *
+ * Returns `false` if any of the following is missing:
+ *   - the resource has no `areaId`
+ *   - the area's `emergencyMode.isActive` is not `true`
+ *   - the volunteer has no `areaId`
+ *   - the volunteer's `areaId` does not match the resource's `areaId`
+ *
+ * The volunteer's `areaId` is NOT included in the User populate today
+ * (privacy helper selects only `name email phone`), so we do a single
+ * targeted `User.findById(..., 'areaId').lean()` per call. This only
+ * runs when emergency mode might be active — a single extra round-trip
+ * in the worst case, zero in the common path.
+ */
+async function computeAreaEmergencyActive(populated, obj) {
+  if (!populated || !populated.resource) return false;
+  const resource = populated.resource;
+  if (!resource.areaId || !resource.areaId._id) return false;
+  const areaEmergency = resource.areaId.emergencyMode;
+  if (!areaEmergency || areaEmergency.isActive !== true) return false;
+
+  const volunteerId = (() => {
+    if (populated.volunteer && populated.volunteer._id) {
+      return populated.volunteer._id;
+    }
+    if (obj && obj.volunteerId) return obj.volunteerId;
+    return null;
+  })();
+  if (!volunteerId) return false;
+
+  const volunteer = await User.findById(volunteerId)
+    .select('areaId')
+    .lean();
+  if (!volunteer || !volunteer.areaId) return false;
+
+  return volunteer.areaId.toString() === resource.areaId._id.toString();
+}
+
+async function publicRequest(doc, { revealContacts = false, populated } = {}) {
   if (!doc) return null;
   const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
   // Helper: stringify an ObjectId-shaped field. After toJSON, populated
@@ -160,13 +202,40 @@ function publicRequest(doc, { revealContacts = false, populated } = {}) {
     moderatorNote: obj.moderatorNote ?? null,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
+    // Module 6.3 — true iff the volunteer's area matches the
+    // resource's area AND that area has emergency mode active.
+    // Surfaced (rather than only used by the server gate) so the
+    // volunteer UI can render the contact card based on this
+    // signal without needing a separate hook.
+    areaEmergencyActive: false,
   };
 
-  // Contact-reveal gate: APPROVED + COLLECTED is the only window in
-  // which both sides can see each other's contact info.
+  // Contact-reveal gate. There are two open paths:
+  //
+  //   1. Happy-path: APPROVED + COLLECTED — both parties can see
+  //      each other's contact info to coordinate the handover.
+  //   2. Emergency-mode (Module 6.3): if the resource's area is the
+  //      same as the volunteer's area AND emergency mode is active in
+  //      that area, the owner contact is revealed even before
+  //      collection so dispatch can happen quickly. The principal-
+  //      only requirement (`revealContacts`) still applies — only
+  //      owner / volunteer / admin can see the response at all.
+  //
+  // Outside these two windows we fall through to the pre-reveal
+  // branch (ownerSummary / volunteerSummary only).
+  const areaEmergencyActive = await computeAreaEmergencyActive(
+    populated,
+    obj
+  );
+  // Surface the signal regardless of `revealContacts` — it's not
+  // contact info, just a derived boolean the volunteer UI uses to
+  // decide whether to render the contact card.
+  base.areaEmergencyActive = areaEmergencyActive === true;
+
   const isRevealable =
     revealContacts &&
-    obj.status === ResourceRequest.REQUEST_STATUS.COLLECTED;
+    (obj.status === ResourceRequest.REQUEST_STATUS.COLLECTED ||
+      areaEmergencyActive);
 
   if (isRevealable && populated) {
     if (populated.owner) {
@@ -214,14 +283,25 @@ function publicRequest(doc, { revealContacts = false, populated } = {}) {
 
 // Convenience: load the request + populate owner / volunteer / resource.
 // Done in one shot so every action handler can share the same shape.
+//
+// `resourceId` is deep-populated: in addition to the public summary
+// fields we also populate `resourceId.areaId.emergencyMode` so that
+// `publicRequest()` can branch on the area-level emergency flag
+// (Module 6.3) without an extra round-trip. The resource subdoc still
+// only carries the originally-selected fields; only `areaId` is
+// expanded into a tiny subdoc with `emergencyMode`.
 async function loadRequestPopulated(id) {
   const doc = await ResourceRequest.findById(id)
     .populate('ownerId', 'name email phone')
     .populate('volunteerId', 'name email phone')
-    .populate(
-      'resourceId',
-      'category title status ownerId location areaId'
-    );
+    .populate({
+      path: 'resourceId',
+      select: 'category title status ownerId location areaId',
+      populate: {
+        path: 'areaId',
+        select: 'emergencyMode',
+      },
+    });
   if (!doc) return null;
   return doc;
 }
@@ -313,7 +393,7 @@ async function createRequest(req, res, next) {
       actor: req.user,
     });
 
-    return created(res, { request: publicRequest(doc) }, 'Request created');
+    return created(res, { request: await publicRequest(doc) }, 'Request created');
   } catch (err) {
     next(err);
   }
@@ -452,17 +532,20 @@ async function listRequests(req, res, next) {
     // `name` (no email/phone) so the helper can safely elevate it to
     // `volunteerSummary`. Same for `resourceId` (category/title/status
     // — no contact surface). Owner / volunteer IDs are sufficient.
+    const requests = await Promise.all(
+      docs.map((d) =>
+        publicRequest(d, {
+          populated: {
+            volunteer: d.volunteerId,
+            resource: d.resourceId,
+          },
+        })
+      )
+    );
     return ok(
       res,
       {
-        requests: docs.map((d) =>
-          publicRequest(d, {
-            populated: {
-              volunteer: d.volunteerId,
-              resource: d.resourceId,
-            },
-          })
-        ),
+        requests,
         pagination: {
           page,
           limit,
@@ -511,7 +594,7 @@ async function getRequest(req, res, next) {
     return ok(
       res,
       {
-        request: publicRequest(doc, {
+        request: await publicRequest(doc, {
           revealContacts: true,
           populated: {
             owner: doc.ownerId,
@@ -583,7 +666,7 @@ async function approveRequest(req, res, next) {
 
     notificationTriggers.onRequestApproved({ request: doc, actor: req.user });
 
-    return ok(res, { request: publicRequest(doc) }, 'Request approved');
+    return ok(res, { request: await publicRequest(doc) }, 'Request approved');
   } catch (err) {
     next(err);
   }
@@ -665,7 +748,7 @@ async function rejectRequest(req, res, next) {
 
     notificationTriggers.onRequestRejected({ request: doc, actor: req.user });
 
-    return ok(res, { request: publicRequest(doc) }, 'Request rejected');
+    return ok(res, { request: await publicRequest(doc) }, 'Request rejected');
   } catch (err) {
     next(err);
   }
@@ -727,7 +810,7 @@ async function collectRequest(req, res, next) {
     return ok(
       res,
       {
-        request: publicRequest(populated, {
+        request: await publicRequest(populated, {
           revealContacts: true,
           populated: {
             owner: populated.ownerId,
@@ -778,7 +861,7 @@ async function returnRequest(req, res, next) {
 
     notificationTriggers.onRequestReturned({ request: doc, actor: req.user });
 
-    return ok(res, { request: publicRequest(doc) }, 'Request returned');
+    return ok(res, { request: await publicRequest(doc) }, 'Request returned');
   } catch (err) {
     next(err);
   }
@@ -831,7 +914,7 @@ async function completeRequest(req, res, next) {
 
     return ok(
       res,
-      { request: publicRequest(doc) },
+      { request: await publicRequest(doc) },
       'Request completed'
     );
   } catch (err) {

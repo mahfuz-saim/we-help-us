@@ -331,6 +331,11 @@ async function run() {
       'OwnerContactCard renders a mailto: link');
     assert(/tel:/.test(src),
       'OwnerContactCard renders a tel: link');
+    // Module 6.3 — phone row must carry a call glyph next to the
+    // number so users know tapping dials the owner. The project has
+    // no icon library; we use the 📞 emoji as the convention.
+    assert(/📞/.test(src),
+      'OwnerContactCard renders a call glyph (📞) next to the phone number');
 
     // Privacy — strip comments first so the doc block above doesn't
     // trip the assertions.

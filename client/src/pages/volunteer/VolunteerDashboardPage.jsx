@@ -320,6 +320,7 @@ function RequestRow({
         canCollect={canCollect}
         canReturn={canReturn}
         isTerminal={isTerminal}
+        areaEmergencyActive={r.areaEmergencyActive === true}
         onCollect={() => onCollect(r.id)}
         onReturn={() => onReturn(r.id)}
         collectPending={collectPending}
@@ -366,6 +367,7 @@ function ActionRow({
   canCollect,
   canReturn,
   isTerminal,
+  areaEmergencyActive,
   onCollect,
   onReturn,
   collectPending,
@@ -412,14 +414,25 @@ function ActionRow({
         </p>
       )}
 
-      {/* Owner contact card. Only visible when status === COLLECTED —
-          that's the server's privacy gate (see request.controller.js's
-          `publicRequest` helper). Before then we surface only the
-          ownerSummary name (id + name, no contact info). */}
-      {status === 'COLLECTED' && ownerFull && (ownerFull.email || ownerFull.phone) && (
-        <OwnerContactCard owner={ownerFull} />
+      {/* Owner contact card. Visible in two cases:
+            1. status === COLLECTED (the standard COLLECTED gate — both
+               parties can coordinate the handover)
+            2. areaEmergencyActive === true (Module 6.3) — the
+               volunteer's area matches the resource's area and that
+               area has emergency mode active, so dispatch can happen
+               quickly even before pickup.
+          Before then we surface only the ownerSummary name (id + name,
+          no contact info). The server enforces the same gate in
+          `publicRequest()` — see request.controller.js. */}
+      {((status === 'COLLECTED' || areaEmergencyActive) &&
+        ownerFull &&
+        (ownerFull.email || ownerFull.phone)) && (
+        <OwnerContactCard
+          owner={ownerFull}
+          areaEmergencyActive={areaEmergencyActive}
+        />
       )}
-      {status !== 'COLLECTED' && ownerSummary && (
+      {status !== 'COLLECTED' && !areaEmergencyActive && ownerSummary && (
         <p className="text-xs text-slate-500">
           Owner:{' '}
           <span className="font-medium text-slate-700">
@@ -434,24 +447,28 @@ function ActionRow({
 
 /**
  * The single privacy-gated surface in this entire module. The server
- * only includes `email` / `phone` on the response when the request
- * has reached COLLECTED — so rendering this card implies the gate
- * already fired. We render three rows:
+ * only includes `email` / `phone` on the response when the gate has
+ * fired — either status === COLLECTED or (Module 6.3) the volunteer's
+ * area is the same as the resource's area and that area is in
+ * emergency mode. So rendering this card implies the gate already
+ * fired. We render three rows:
  *
  *   - Name (display only)
  *   - Email (`mailto:` link, fall back to text if missing)
- *   - Phone (`tel:` link, fall back to text)
+ *   - Phone (`tel:` link with a call glyph, fall back to text)
  *
  * We DO NOT render the volunteer's own contact info here. The
- * privacy gate is symmetric — when COLLECTED, both parties can see
- * each other's info. The owner-facing surface for that is Module
- * 5.4, not this page.
+ * privacy gate is symmetric — when COLLECTED or in-area emergency,
+ * both parties can see each other's info. The owner-facing surface
+ * for that is Module 5.4, not this page.
  */
-function OwnerContactCard({ owner }) {
+function OwnerContactCard({ owner, areaEmergencyActive }) {
   return (
     <div className="rounded-md border border-safe-300 bg-safe-50 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-safe-800">
-        Owner contact (revealed after collection)
+        {areaEmergencyActive
+          ? 'Owner contact (emergency mode in your area)'
+          : 'Owner contact (revealed after collection)'}
       </p>
       <dl className="mt-2 space-y-1 text-sm text-safe-900">
         {owner.name && (
@@ -485,9 +502,16 @@ function OwnerContactCard({ owner }) {
             <dd>
               <a
                 href={`tel:${owner.phone}`}
-                className="text-safe-800 underline hover:text-safe-900"
+                className="inline-flex items-center gap-1.5 text-safe-800 underline hover:text-safe-900"
               >
-                {owner.phone}
+                <span aria-hidden className="text-base leading-none">
+                  {/* Call glyph — clicking the surrounding <a href="tel:…">
+                      opens the platform dialer. The project has no icon
+                      library installed, so we follow the existing
+                      emoji + Tailwind text-size convention. */}
+                  📞
+                </span>
+                <span>{owner.phone}</span>
               </a>
             </dd>
           </div>
