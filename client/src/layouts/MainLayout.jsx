@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from '../components/NotificationBell';
+import ProfileMenu from '../components/ProfileMenu';
 import MobileNavDrawer from '../components/MobileNavDrawer';
 import { navLinkClass } from '../utils/navLinkClass';
 
 export default function MainLayout() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -32,15 +33,6 @@ export default function MainLayout() {
           {/* Desktop navigation — the complete menu remains unchanged above md. */}
           <nav className="hidden items-center gap-1 text-sm md:flex">
             <DesktopNavLinks user={user} />
-            {user && (
-              <button
-                type="button"
-                onClick={logout}
-                className="ml-2 min-h-[44px] rounded-md px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              >
-                Log out
-              </button>
-            )}
           </nav>
 
           {/* Compact mobile header — the full menu opens in MobileNavDrawer. */}
@@ -159,10 +151,12 @@ function DesktopNavLinks({ user }) {
             </NavLink>
           )}
           <NotificationBell />
-          <NavLink to="/profile" className={({ isActive }) => navLinkClass(isActive)}>
-            <span className="hidden sm:inline">{user.name || user.email || 'Profile'}</span>
-            <span className="sm:hidden">Profile</span>
-          </NavLink>
+          {/* Right-corner profile icon (with avatar/initials) + a
+              dropdown menu that exposes Profile and Log out. Mirrors
+              the click-outside pattern of NotificationBell. */}
+          <div className="ml-1">
+            <ProfileMenu />
+          </div>
         </>
       ) : (
         <>
