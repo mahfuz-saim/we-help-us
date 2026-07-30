@@ -685,7 +685,9 @@ async function run() {
     //     we approved it. So REQUESTED count = 0 now.
     //   - APPROVED: 1 (reqCarolA, after approve).
     //   - REJECTED: 2 (reqEveARejected + reqDanB after reject).
-    //   - RETURNED: 1 (reqEveC, stays RETURNED after complete).
+    //   - RETURNED: 0 (reqEveC is filtered out of the OWNER inbox once
+    //     COMPLETE has flipped its resource back to AVAILABLE — the
+    //     pair (RETURNED + AVAILABLE) is treated as fully reconciled).
     //   - COLLECTED: 0.
     const requestedOnly = await http_('GET', '/api/requests?status=REQUESTED', {
       token: aliceToken,
@@ -712,8 +714,8 @@ async function run() {
       token: aliceToken,
     });
     assert(
-      returnedOnly.body.data.pagination.total === 1,
-      'RETURNED filter returns 1 (EveC)'
+      returnedOnly.body.data.pagination.total === 0,
+      'RETURNED filter returns 0 (EveC reconciled → resource AVAILABLE → filtered)'
     );
     // Module 5.4 dashboard counter sums REQUESTED + APPROVED → 1.
     assert(
@@ -733,8 +735,8 @@ async function run() {
       token: aliceToken,
     });
     assert(
-      fresh.status === 200 && fresh.body.data.requests.length === 4,
-      'OWNER inbox stays at 4 rows after lifecycle mutations'
+      fresh.status === 200 && fresh.body.data.requests.length === 3,
+      'OWNER inbox shrinks to 3 rows after COMPLETE reconciles EveC (RETURNED+AVAILABLE filtered)'
     );
     const ids = fresh.body.data.requests.map((r) => r.id);
     assert(

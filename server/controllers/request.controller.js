@@ -336,6 +336,36 @@ async function listRequests(req, res, next) {
 
     if (role === User.ROLES.OWNER) {
       filter.ownerId = req.user._id;
+
+      // Exclude already-reconciled RETURNED requests: once the owner
+      // has confirmed the return (PATCH /api/requests/:id/complete),
+      // the resource flips back to AVAILABLE but the request itself
+      // stays in RETURNED — that state is terminal by design (see
+      // the lifecycle comment at the top of this file). Without this
+      // exclusion the owner inbox keeps showing the row and the
+      // "Confirm return" button keeps coming back. We compose the
+      // exclusion with the rest of the OWNER scope (status/resource/
+      // volunteer filters below), and apply it to both the row query
+      // and the countDocuments() call so pagination stays consistent.
+      const availableResourceIds = await Resource.find({
+        ownerId: req.user._id,
+        status: Resource.STATUS.AVAILABLE,
+      })
+        .select('_id')
+        .lean();
+      const availableIdStrings = availableResourceIds.map((r) => r._id);
+      if (availableIdStrings.length > 0) {
+        const reconciledRequestIds = await ResourceRequest.find({
+          ownerId: req.user._id,
+          status: ResourceRequest.REQUEST_STATUS.RETURNED,
+          resourceId: { $in: availableIdStrings },
+        })
+          .select('_id')
+          .lean();
+        filter._id = {
+          $nin: reconciledRequestIds.map((d) => d._id),
+        };
+      }
     } else if (role === User.ROLES.VOLUNTEER) {
       filter.volunteerId = req.user._id;
     } else if (role === User.ROLES.MODERATOR) {

@@ -319,7 +319,14 @@ function RequestRow({
 
   const canApprove = r.status === 'REQUESTED';
   const canReject = r.status === 'REQUESTED' || r.status === 'APPROVED';
-  const canComplete = r.status === 'RETURNED';
+  // "Confirm return" is only valid while the resource is still in
+  // the volunteer's hands (IN_USE). Once the owner has confirmed the
+  // return, the resource flips back to AVAILABLE and the action
+  // becomes a no-op — the backend list endpoint already filters
+  // these rows out, but a stale cached response can still surface
+  // them, so guard the button here too.
+  const canComplete =
+    r.status === 'RETURNED' && r.resource?.status === 'IN_USE';
   const isTerminal =
     r.status === 'REJECTED' ||
     r.status === 'CANCELLED' ||
