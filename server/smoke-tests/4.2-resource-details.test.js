@@ -162,7 +162,22 @@ async function run() {
   assert(ownerToken, 'tokens issued');
 
   // Seed two resources directly so we can pin location + capacity +
-  // areaId without going through the multipart upload path.
+  // areaId without going through the multipart upload path. We also
+  // seed a tiny area chain so resourceA carries a real `areaId` —
+  // that's the populated-id-stays-a-string path the resource details
+  // page hits (regression test for the [object Object] bug — see
+  // 3.2-resource-api.test.js section 11).
+  const areaDocForDetails = await mongoose.connection
+    .collection('areas')
+    .insertOne({
+      country: 'BD',
+      level: 'DISTRICT',
+      name: 'Smoke District',
+      parentId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  const areaIdHexForDetails = areaDocForDetails.insertedId.toString();
   const resourceA = await Resource.create({
     ownerId: ownerDoc._id,
     category: 'MEDICAL',
@@ -172,6 +187,7 @@ async function run() {
     condition: 'GOOD',
     status: 'AVAILABLE',
     location: { type: 'Point', coordinates: [90.4125, 23.8103] },
+    areaId: areaIdHexForDetails,
   });
   const resourceB = await Resource.create({
     ownerId: otherOwnerDoc._id,
@@ -229,7 +245,14 @@ async function run() {
     const blob = JSON.stringify(r.body);
     assert(!/alice-details@example\.com/.test(blob), '  no owner email leak');
     assert(!/\+8801710000301/.test(blob), '  no owner phone leak');
-    assert(!/Alice Owner/.test(blob), '  no owner name leak');
+    // The owner's PUBLIC NAME is exposed by the single-resource fetch —
+    // see commit 613d2bb ("fix(resources): show owner + area names on
+    // resource details"). The privacy boundary is on contact info
+    // (email/phone), not on name. Asserting the inverse: the response
+    // DOES surface the populated ownerName so the page can render it.
+    const res = r.body.data.resource;
+    assert(res.ownerName === 'Alice Owner', '  ownerName surfaces the populated owner name');
+    assert(res.areaName === 'Smoke District', '  areaName surfaces the populated area name');
     // The other owner's details mustn't leak on resource B either.
     const r2 = await http_('GET', `/api/resources/${resourceB._id.toString()}`, {
       token: volunteerToken,
@@ -237,7 +260,7 @@ async function run() {
     const blob2 = JSON.stringify(r2.body);
     assert(!/bob-details@example\.com/.test(blob2), '  no other-owner email leak');
     assert(!/\+8801710000302/.test(blob2), '  no other-owner phone leak');
-    assert(!/Bob Owner/.test(blob2), '  no other-owner name leak');
+    assert(r2.body.data.resource.ownerName === 'Bob Owner', '  resource B ownerName surfaces Bob');
 
     // The resource response also doesn't expose the full User doc —
     // ownerId is the only owner-side field exposed. Anything beyond

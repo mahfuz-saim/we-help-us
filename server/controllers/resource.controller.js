@@ -51,6 +51,40 @@ function publicResource(doc) {
   // create / list / update paths do not populate), it's still a raw
   // ObjectId. Handle both shapes so this helper stays safe across all
   // call sites. Same for `areaId`.
+  //
+  // Critical: calling `.toString()` on a populated plain object
+  // yields `'[object Object]'` (the default Object.prototype.toString
+  // for objects without a specialised [Symbol.toStringTag]), which
+  // is exactly the bug that surfaced as a 400 from GET /api/areas/:id
+  // — the client received resource.areaId === '[object Object]' and
+  // forwarded it to the area-chain hook. We use a defensive stringId
+  // helper that always returns a valid ObjectId-shaped string (or
+  // null) regardless of population state. The helper below mirrors
+  // the same approach used in request.controller.js / publicRequest.
+  const stringId = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'string') return v;
+    if (v instanceof Buffer) return v.toString();
+    // Populated subdoc shape: { _id, name }
+    if (v && v._id) {
+      const id = v._id;
+      if (typeof id === 'string') return id;
+      if (id && typeof id.toString === 'function') {
+        const s = id.toString();
+        if (s && s !== '[object Object]') return s;
+      }
+    }
+    // Some mongoose toJSON shapes emit `id` (string) instead of `_id`.
+    if (v && typeof v.id === 'string') return v.id;
+    // Raw ObjectId — its toString returns the 24-char hex, never
+    // '[object Object]'. Last resort; ignore the '[object Object]'
+    // sentinel.
+    if (v && typeof v.toString === 'function' && v.toString !== Object.prototype.toString) {
+      const s = v.toString();
+      if (s && s !== '[object Object]') return s;
+    }
+    return null;
+  };
   const ownerName = (() => {
     const v = obj.ownerId;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
@@ -68,7 +102,7 @@ function publicResource(doc) {
   })();
   return {
     id: obj.id,
-    ownerId: obj.ownerId ? obj.ownerId.toString() : null,
+    ownerId: stringId(obj.ownerId),
     ownerName,
     category: obj.category,
     title: obj.title,
@@ -77,7 +111,7 @@ function publicResource(doc) {
     capacity: obj.capacity ?? null,
     condition: obj.condition,
     status: obj.status,
-    areaId: obj.areaId ? obj.areaId.toString() : null,
+    areaId: stringId(obj.areaId),
     areaName,
     location: obj.location || null,
     createdAt: obj.createdAt,
