@@ -295,6 +295,22 @@ async function run() {
 
   // ── 3. POST /api/resources — happy path (no photos) ──────────────────
   console.log('\n--- 3. POST /api/resources (no photos) ---');
+  // Pre-seed an area chain in the in-memory DB so we can exercise the
+  // `areaId` populated-id-stays-a-string bug below. A district is
+  // enough — the controller's `getResource` populates `areaId`, and
+  // the smoke then asserts the id remains a valid 24-char hex instead
+  // of being coerced to `'[object Object]'`.
+  const areaDoc = await mongoose.connection
+    .collection('areas')
+    .insertOne({
+      country: 'BD',
+      level: 'DISTRICT',
+      name: 'Smoke District',
+      parentId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  const areaIdHex = areaDoc.insertedId.toString();
   let resourceId;
   {
     const r = await http_('POST', '/api/resources', {
@@ -305,6 +321,7 @@ async function run() {
         description: 'A small first-aid kit stocked with bandages and antiseptic.',
         capacity: 5,
         condition: 'GOOD',
+        areaId: areaIdHex,
       },
     });
     assert(r.status === 201, 'POST no-photos → 201');
@@ -321,6 +338,9 @@ async function run() {
     assert(r.body.data.resource.capacity === 5, '  capacity echoed');
     assert(Array.isArray(r.body.data.resource.photos) && r.body.data.resource.photos.length === 0, '  photos empty');
     assert(r.body.data.resource.createdAt, '  createdAt set');
+    // The single-fetch path populates `areaId` later; the create path
+    // does NOT, so we can already assert the raw ObjectId shape here.
+    assert(r.body.data.resource.areaId === areaIdHex, '  areaId matches the seeded hex (create path, unpopulated)');
   }
 
   // ── 4. POST /api/resources — with photo upload ───────────────────────
@@ -551,9 +571,69 @@ async function run() {
     assert(r.status === 200, 'GET by id → 200');
     assert(r.body.data.resource.id === resourceId, '  id matches');
 
+    // REGRESSION (Module 4.2 area-chain bug): after .populate('areaId','name'),
+    // doc.areaId is a subdoc like { _id, name }. The publicResource helper
+    // MUST coerce that to the 24-char hex string — not the literal text
+    // '[object Object]'. If the helper falls back to a naive .toString()
+    // call, the client receives areaId === '[object Object]' and forwards
+    // it to GET /api/areas/:id, which the validator rejects with 400.
+    // This is the exact failure mode the resource details page hit.
+    const detail = r.body.data.resource;
+    assert(
+      typeof detail.areaId === 'string',
+      `  areaId is a string in the response (got ${typeof detail.areaId})`
+    );
+    assert(
+      detail.areaId === areaIdHex,
+      `  areaId is the seeded ObjectId hex (got ${JSON.stringify(detail.areaId)})`
+    );
+    assert(
+      detail.areaId !== '[object Object]',
+      `  areaId is NOT the '[object Object]' sentinel`
+    );
+    assert(
+      /^[a-fA-F0-9]{24}$/.test(detail.areaId),
+      `  areaId matches the 24-char ObjectId hex shape`
+    );
+    // ownerId goes through the same helper post-populate; same invariant.
+    assert(
+      detail.ownerId === ownerDoc._id.toString(),
+      `  ownerId is the seeded ObjectId hex string (got ${JSON.stringify(detail.ownerId)})`
+    );
+    // The populated name should appear alongside the populated id.
+    assert(
+      detail.areaName === 'Smoke District',
+      `  areaName surfaces the populated area name`
+    );
+    assert(
+      detail.ownerName === 'Alice Owner',
+      `  ownerName surfaces the populated owner name`
+    );
+
     const blob = JSON.stringify(r.body);
     assert(!/alice-rsrc@example\.com/.test(blob), '  no owner email leak in single response');
     assert(!/\+8801710000001/.test(blob), '  no owner phone leak in single response');
+
+    // Round-trip the address: client would call GET /api/areas/:areaId
+    // with detail.areaId — it MUST succeed (i.e. detail.areaId is
+    // a real ObjectId, not '[object Object]').
+    const rChain = await http_(
+      'GET',
+      '/api/areas/' + encodeURIComponent(detail.areaId),
+      { token: volunteerToken }
+    );
+    assert(
+      rChain.status === 200,
+      `  /api/areas/:id round-trip with detail.areaId → 200 (got ${rChain.status})`
+    );
+    assert(
+      rChain.body && rChain.body.data && rChain.body.data.chain,
+      '  area-chain response has a chain'
+    );
+    assert(
+      rChain.body.data.chain[0].name === 'Smoke District',
+      '  chain[0].name is the seeded area name'
+    );
 
     const r2 = await http_('GET', '/api/resources/000000000000000000000000', {
       token: volunteerToken,
@@ -564,6 +644,18 @@ async function run() {
       token: volunteerToken,
     });
     assert(r3.status === 400, 'GET bad id → 400 (CastError)');
+
+    // Belt + braces: directly hitting the area endpoint with the
+    // historically-buggy '[object Object]' string MUST 400.
+    const r4 = await http_(
+      'GET',
+      '/api/areas/' + encodeURIComponent('[object Object]'),
+      { token: volunteerToken }
+    );
+    assert(
+      r4.status === 400,
+      '  GET /api/areas/[object Object] → 400 (proves the validator rejects the bad id)'
+    );
   }
 
   // ── 12. PATCH /api/resources/:id — owner updates ─────────────────────

@@ -82,6 +82,7 @@ const { createApp } = require('../app');
 const User = require('../models/User');
 const Resource = require('../models/Resource');
 const ResourceRequest = require('../models/ResourceRequest');
+const EmergencyActivation = require('../models/EmergencyActivation');
 const { signJwt } = require('../utils/jwt');
 
 let server;
@@ -868,6 +869,172 @@ async function run() {
       verifiedVol._id
     );
     assert(found !== null, 'hasActiveRequest finds the fresh REQUESTED doc');
+  }
+
+  // ── 15. Emergency-mode contact reveal ────────────────────────────────
+  // Lock the Module 6.3 contract: when emergency mode is active in the
+  // volunteer's area AND the resource's area matches, the volunteer
+  // can see the owner's email/phone on GET /:id even before the
+  // request has been COLLECTED. Cross-area isolation: a volunteer in
+  // a DIFFERENT area must NOT see the contact info even when their
+  // (different) area is in emergency mode.
+  console.log('\n--- 15. emergency-mode contact reveal ---');
+  {
+    const Area = mongoose.connection.db.collection('areas');
+    const emArea = await Area.insertOne({
+      country: 'Bangladesh',
+      level: 'UNION',
+      name: 'Emergency Union 52',
+      parentId: null,
+      emergencyMode: { isActive: false, activatedAt: null, activatedBy: null },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const emAreaId = emArea.insertedId;
+    const otherEmArea = await Area.insertOne({
+      country: 'Bangladesh',
+      level: 'UNION',
+      name: 'Other Emergency Union 52',
+      parentId: null,
+      emergencyMode: { isActive: false, activatedAt: null, activatedBy: null },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const otherEmAreaId = otherEmArea.insertedId;
+
+    // Owner + same-area volunteer for the happy path.
+    const emOwner = await User.create({
+      name: 'Em Owner',
+      email: 'em-owner-52@example.com',
+      phone: '+8801711000071',
+      password: 'long-enough-password',
+      role: 'OWNER',
+    });
+    const emVolunteer = await User.create({
+      name: 'Em Volunteer',
+      email: 'em-vol-52@example.com',
+      phone: '+8801711000072',
+      password: 'long-enough-password',
+      role: 'VOLUNTEER',
+      isVerified: true,
+      areaId: emAreaId,
+    });
+    // Out-of-area volunteer for the isolation case.
+    const otherVolunteer = await User.create({
+      name: 'Other Volunteer',
+      email: 'other-vol-52@example.com',
+      phone: '+8801711000073',
+      password: 'long-enough-password',
+      role: 'VOLUNTEER',
+      isVerified: true,
+      areaId: otherEmAreaId,
+    });
+
+    const emResource = await Resource.create({
+      ownerId: emOwner._id,
+      category: 'MEDICAL',
+      title: 'Emergency field kit',
+      description: 'A resource used to test emergency-mode reveal.',
+      status: 'AVAILABLE',
+      areaId: emAreaId,
+    });
+
+    const emRequest = await ResourceRequest.create({
+      resourceId: emResource._id,
+      ownerId: emOwner._id,
+      volunteerId: emVolunteer._id,
+      status: 'APPROVED', // NOT COLLECTED — emergency gate is the only path
+    });
+    // Pre-flight: with emergency OFF, contact must be hidden.
+    const beforeEmergency = await http_('GET', `/api/requests/${emRequest._id}`, {
+      token: signJwt({ id: emVolunteer._id.toString(), role: emVolunteer.role }),
+    });
+    assert(beforeEmergency.status === 200, 'pre-flight GET /:id → 200');
+    assert(
+      !hasContactLeak(beforeEmergency.body),
+      '  pre-flight: emergency OFF → NO contact leak (APPROVED + not COLLECTED)'
+    );
+    assert(
+      beforeEmergency.body.data.request.areaEmergencyActive === false,
+      '  pre-flight: areaEmergencyActive === false in response'
+    );
+
+    // Activate emergency mode in the shared area. Module 9 reads
+    // from the EmergencyActivation collection, NOT Area.emergencyMode
+    // (the 6.3 wire shape is preserved but storage moved).
+    await EmergencyActivation.deleteMany({});
+    await EmergencyActivation.create({
+      rootAreaId: emAreaId,
+      level: 'UNION',
+      scope: 'HIERARCHY',
+      descendantAreaIds: [emAreaId],
+      message: 'test emergency',
+      activatedBy: modWithArea._id,
+      activatedByRole: 'MODERATOR',
+      isActive: true,
+    });
+
+    // Same-area volunteer NOW sees contact info, even though status is
+    // APPROVED (not COLLECTED).
+    const duringEmergency = await http_('GET', `/api/requests/${emRequest._id}`, {
+      token: signJwt({ id: emVolunteer._id.toString(), role: emVolunteer.role }),
+    });
+    assert(duringEmergency.status === 200, 'during-emergency GET /:id → 200');
+    const dReq = duringEmergency.body.data.request;
+    assert(
+      dReq.areaEmergencyActive === true,
+      '  during-emergency: areaEmergencyActive === true'
+    );
+    assert(
+      dReq.owner && dReq.owner.email === emOwner.email,
+      '  during-emergency: owner email revealed (same-area volunteer)'
+    );
+    assert(
+      dReq.owner && dReq.owner.phone === emOwner.phone,
+      '  during-emergency: owner phone revealed (same-area volunteer)'
+    );
+
+    // Cross-area volunteer: their area is in a DIFFERENT area (otherEmArea)
+    // which is NOT in emergency mode. Should NOT see contact info.
+    const crossAreaGet = await http_('GET', `/api/requests/${emRequest._id}`, {
+      token: signJwt({ id: otherVolunteer._id.toString(), role: otherVolunteer.role }),
+    });
+    assert(crossAreaGet.status === 403, 'cross-area volunteer GET → 403 (not a principal)');
+
+    // Now make the OTHER area emergency too — the cross-area volunteer
+    // still must NOT see the contact, because their area is in emergency
+    // but does NOT match the resource's area.
+    await Area.updateOne(
+      { _id: otherEmAreaId },
+      {
+        $set: {
+          'emergencyMode.isActive': true,
+          'emergencyMode.activatedAt': new Date(),
+          'emergencyMode.activatedBy': modWithArea._id,
+        },
+      }
+    );
+    const crossAreaGet2 = await http_('GET', `/api/requests/${emRequest._id}`, {
+      token: signJwt({ id: otherVolunteer._id.toString(), role: otherVolunteer.role }),
+    });
+    assert(
+      crossAreaGet2.status === 403,
+      'cross-area volunteer GET (their area also in emergency) → still 403 (not a principal)'
+    );
+
+    // Deactivate emergency mode — reveal must close.
+    await EmergencyActivation.updateMany({}, { isActive: false });
+    const afterEmergency = await http_('GET', `/api/requests/${emRequest._id}`, {
+      token: signJwt({ id: emVolunteer._id.toString(), role: emVolunteer.role }),
+    });
+    assert(
+      !hasContactLeak(afterEmergency.body),
+      'after-emergency: same-area volunteer → NO contact leak again'
+    );
+    assert(
+      afterEmergency.body.data.request.areaEmergencyActive === false,
+      '  after-emergency: areaEmergencyActive === false in response'
+    );
   }
 
   await stop();

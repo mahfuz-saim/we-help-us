@@ -1,5 +1,5 @@
 /**
- * NotificationSocket — Module 7.5.
+ * NotificationSocket — Module 7.5 (+ Module 9 emergency extension).
  *
  * Bridges the server-side Socket.io `notification:new` event into:
  *   1. The TanStack Query notifications cache (bumps unread count +
@@ -7,6 +7,19 @@
  *      instantly without a refetch).
  *   2. A react-hot-toast toast so the user sees the alert even if
  *      the bell is off-screen.
+ *
+ * Module 9 — Emergency System Rework:
+ *   The hook ALSO subscribes to the `emergency:activated` socket
+ *   event. That event doesn't carry a notification payload — the
+ *   server already writes one row per recipient via
+ *   `notifyMany`. The emergency event is the cross-cutting
+ *   signal that the analytics map + resource list / owner
+ *   dashboards / search list need to refresh.
+ *
+ *   We invalidate the `emergency-activations` query family plus
+ *   the resource/owner-resources/resource-requests keys so any
+ *   badge or row that depends on `areaEmergencyActive` updates
+ *   within one socket roundtrip.
  *
  * Lifecycle:
  *   - Hook is mounted while `enabled` is true (typically: while the
@@ -37,10 +50,13 @@ import { NOTIFICATION_QUERY_KEY } from './useNotifications';
 
 /**
  * Open the singleton Socket.io connection and subscribe to
- * `notification:new`. The handler:
+ * `notification:new` + (Module 9) `emergency:activated`. The handler:
  *   - prepends the payload to the first page of the notifications list
  *   - increments unreadCount across every cached notifications entry
  *   - emits a toast using title + message
+ *   - on `emergency:activated`: invalidates the emergency family +
+ *     resource family so the analytics map + resource list rows
+ *     refresh.
  *
  * Returns nothing — the consumer (e.g. <NotificationBell />) wires
  * the UI; this hook is just the bridge.
@@ -107,9 +123,27 @@ export function useNotificationSocket({ enabled }) {
       });
     }
 
+    // Module 9 — emergency socket subscriber. The payload is the
+    // public-shape activation row (id only, no contact info). We use
+    // it purely as a "refresh signal" — every consumer that depends
+    // on the activation family refetches.
+    function handleEmergencyActivated(_payload) {
+      qc.invalidateQueries({ queryKey: ['emergency-activations'] });
+      // Resource rows / owner rows / search results surface
+      // `areaEmergencyActive` per row. Those caches also need to
+      // re-fetch so the badge appears in the same socket roundtrip.
+      qc.invalidateQueries({ queryKey: ['resources'] });
+      qc.invalidateQueries({ queryKey: ['owner-resources'] });
+      qc.invalidateQueries({ queryKey: ['resource-requests'] });
+      qc.invalidateQueries({ queryKey: ['resource-search'] });
+      qc.invalidateQueries({ queryKey: ['moderator-emergency-mode'] });
+    }
+
     socket.on('notification:new', handleNewNotification);
+    socket.on('emergency:activated', handleEmergencyActivated);
     return () => {
       socket.off('notification:new', handleNewNotification);
+      socket.off('emergency:activated', handleEmergencyActivated);
     };
   }, [enabled, qc]);
 }

@@ -38,7 +38,11 @@
 
 const Notification = require('../models/Notification');
 const User = require('../models/User');
-const { emitNotificationToUser } = require('../sockets/emitter');
+const EmergencyActivation = require('../models/EmergencyActivation');
+const {
+  emitNotificationToUser,
+  emitEmergencyActivated,
+} = require('../sockets/emitter');
 
 /**
  * Module 7.4 — contact-free wire shape for real-time payloads. Mirrors
@@ -61,24 +65,25 @@ function publicNotificationPayload(doc) {
   };
 }
 
-function safeCreate(doc) {
-  // Detached from the caller. Errors are logged but never propagated.
-  // Module 7.4: a successful insert is also broadcast to the recipient's
+async function safeCreate(doc) {
+  // Returns the created notification (or null on failure). Errors are
+  // logged but never propagated — triggers must be best-effort. Module
+  // 7.4: a successful insert is also broadcast to the recipient's
   // `user_<id>` Socket.io room so the dashboard's bell + toast can
   // surface the row immediately (no manual refetch).
-  Promise.resolve()
-    .then(() => Notification.create(doc))
-    .then((created) => {
-      const payload = publicNotificationPayload(created);
-      if (payload) emitNotificationToUser(payload.recipientId, payload);
-    })
-    .catch((err) => {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[notifications] trigger failed:',
-        err && err.message ? err.message : err
-      );
-    });
+  try {
+    const created = await Notification.create(doc);
+    const payload = publicNotificationPayload(created);
+    if (payload) emitNotificationToUser(payload.recipientId, payload);
+    return created;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[notifications] trigger failed:',
+      err && err.message ? err.message : err
+    );
+    return null;
+  }
 }
 
 async function notifyMany(recipientIds, { title, message, type, relatedId }) {
@@ -98,8 +103,11 @@ async function notifyMany(recipientIds, { title, message, type, relatedId }) {
     relatedId: relatedId ?? null,
   }));
   // Create one at a time so a duplicate-key / validation error on one
-  // row doesn't abort the batch — triggers must be best-effort.
-  for (const doc of docs) safeCreate(doc);
+  // row doesn't abort the batch — triggers must be best-effort. The
+  // outer caller (controller) awaits `notifyMany` so the row is
+  // observable by the time the HTTP response returns. The socket emit
+  // inside `safeCreate` runs as a side effect once the DB write lands.
+  for (const doc of docs) await safeCreate(doc);
 }
 
 async function moderatorRecipientsForArea(areaId, { excludeUserId } = {}) {
@@ -221,6 +229,76 @@ function onRequestCompleted({ request, actor }) {
   });
 }
 
+/**
+ * Module 9 — EMERGENCY_MODE. Fire after a successful activation
+ * (volunteer OR moderator). The `recipients` argument is the shape
+ * returned by `resolveEmergencyRecipients(activation)` in
+ * `server/utils/emergencyScope.js`:
+ *
+ *   { owners: ObjectId[], volunteers: ObjectId[], moderators: ObjectId[],
+ *     all: ObjectId[] }
+ *
+ * Default behaviour: notify owners + moderators (the people who need
+ * to know). Volunteers receive the broadcast via the per-user socket
+ * push as well, but only when the helper is invoked with
+ * `includeVolunteers: true`.
+ *
+ * Title + message: the volunteer's / moderator's free-text description
+ * is forwarded verbatim. We don't sanitise — phone numbers are the
+ * coordination channel in this context.
+ *
+ * Socket push: `emitEmergencyActivated(...)` is fired to the area room
+ * + the public room so the analytics page + map view + resource list
+ * can subscribe to live updates without polling.
+ *
+ * Self-notification is skipped: the activator doesn't get their own
+ * "you activated emergency mode" row (the UI already knows — they
+ * just clicked the button).
+ */
+async function onEmergencyActivated({ activation, recipients, includeVolunteers }) {
+  if (!activation || !activation._id) return;
+  if (!recipients) return;
+
+  const skipId =
+    activation.activatedBy && activation.activatedBy._id
+      ? activation.activatedBy._id.toString()
+      : activation.activatedBy
+        ? activation.activatedBy.toString()
+        : null;
+
+  const all = [
+    ...(recipients.owners || []),
+    ...(recipients.moderators || []),
+    ...(includeVolunteers ? recipients.volunteers || [] : []),
+  ];
+  const filtered = skipId
+    ? all.filter((id) => id.toString() !== skipId)
+    : all;
+
+  // Await so the controller's HTTP response is only sent once the
+  // Notification rows are persisted (avoids smoke + UI races).
+  await notifyMany(filtered, {
+    title: '🚨 Emergency mode activated',
+    message: activation.message,
+    type: Notification.TYPES.EMERGENCY_MODE,
+    relatedId: activation._id,
+  });
+
+  // Live socket push for the map / analytics / resource-list views.
+  // We send the public shape (no email/phone) so subscribers can use
+  // it directly without re-fetching.
+  try {
+    const publicShape = EmergencyActivation.publicShape(activation);
+    emitEmergencyActivated(publicShape);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[notifications] onEmergencyActivated socket push failed:',
+      err && err.message ? err.message : err
+    );
+  }
+}
+
 module.exports = {
   onRequestCreated,
   onRequestApproved,
@@ -228,4 +306,10 @@ module.exports = {
   onRequestCollected,
   onRequestReturned,
   onRequestCompleted,
+  onEmergencyActivated,
+  // Re-exported so `utils/emergencyScope.resolveEmergencyRecipients`
+  // can fan-out moderator notifications without re-implementing the
+  // area→user lookup. Avoids a duplicate "all moderators in area"
+  // helper.
+  moderatorRecipientsForArea,
 };

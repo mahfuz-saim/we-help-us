@@ -16,7 +16,7 @@
  *
  * Role gating:
  *   - Resources + Map appear for any authenticated user.
- *   - "My Requests" appears for VOLUNTEER.
+ *   - "My Requests" + "Emergency" appear for VOLUNTEER.
  *   - "Incoming" appears for OWNER.
  *   - "Moderation" + "Analytics" appear for MODERATOR / ADMIN.
  *   - Log out is always available when the user is logged in.
@@ -128,6 +128,13 @@ export default function MobileNavDrawer({ open, onClose }) {
                   to="/volunteer/requests"
                   onClose={close}
                   label="My Requests"
+                />
+              )}
+              {user.role === 'VOLUNTEER' && (
+                <DrawerNav
+                  to="/volunteer/emergency"
+                  onClose={close}
+                  label="Emergency"
                 />
               )}
               {user.role === 'OWNER' && (

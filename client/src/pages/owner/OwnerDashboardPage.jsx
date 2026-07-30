@@ -50,6 +50,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 
 import { useAuth } from '../../context/AuthContext';
+import EmergencyActiveBadge from '../../components/emergency/EmergencyActiveBadge';
 import { getCategoryEmoji, getCategoryLabel } from '../../utils/categories';
 import { RESOURCE_STATUS } from '../../utils/constants';
 import {
@@ -332,6 +333,7 @@ function ResourceCard({ resource, onToggle, onDelete, toggling, deleting }) {
               {resource.title || 'Untitled resource'}
             </h2>
             {status && <StatusBadge status={status} />}
+            <EmergencyActiveBadge show={resource.areaEmergencyActive === true} />
           </div>
           <p className="mt-1 text-xs text-slate-500">
             <span>{getCategoryLabel(resource.category)}</span>

@@ -48,9 +48,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { MapContainer, Marker, TileLayer } from 'react-leaflet';
+import '../utils/leaflet-icons';
 
 import { useAuth } from '../context/AuthContext';
 import { useResource } from '../hooks/useResource';
+import { useAreaChain } from '../hooks/useAreas';
 import { useCreateRequest } from '../hooks/useMyRequests';
 import {
   getCategoryEmoji,
@@ -60,6 +63,8 @@ import {
 import { RESOURCE_STATUS } from '../utils/constants';
 import { formatDistance, haversineMeters } from '../utils/distance';
 import { extractFormError } from '../utils/formErrors';
+
+const SEARCH_RESULT_ZOOM = 16;
 
 export default function ResourceDetailsPage() {
   const { id } = useParams();
@@ -88,6 +93,63 @@ export default function ResourceDetailsPage() {
     );
   }, [user, resource]);
 
+  // Photo / map view toggle. Defaults to MAP. The photo fallback
+  // only fires AFTER the resource query has loaded AND the loaded
+  // resource genuinely has no location — otherwise the page would
+  // briefly flash to 'photo' while `query.data` is still resolving
+  // (since `hasLocation` is false during the load), and then never
+  // snap back to 'map' when the real resource with its real
+  // coordinates arrives. We also re-assert 'map' once a location-
+  // bearing resource resolves, so a stale 'photo' selection can't
+  // survive a navigation between two resources.
+  const hasLocation =
+    !!resource &&
+    !!resource.location &&
+    Array.isArray(resource.location.coordinates) &&
+    resource.location.coordinates.length === 2 &&
+    Number.isFinite(resource.location.coordinates[0]) &&
+    Number.isFinite(resource.location.coordinates[1]);
+  const [viewMode, setViewMode] = useState('map');
+  useEffect(() => {
+    if (!resource) return;
+    if (hasLocation) {
+      if (viewMode !== 'map') setViewMode('map');
+    } else if (viewMode === 'map') {
+      setViewMode('photo');
+    }
+    // viewMode intentionally omitted from deps — we only want to
+    // react to changes in (resource, hasLocation), not to the
+    // toggle clicks themselves (which would re-trigger this effect).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resource, hasLocation]);
+
+  // Full address chain (district > upazila > union > ...). Fetches
+  // from GET /api/areas/:id via the existing useAreaChain hook.
+  // Defensive: the response is unwrapped through `data?.data`, the
+  // server returns `{ area, chain: [{id, level, name}, ...] }`, but
+  // we tolerate any variation and pull `name` through a guarded
+  // coercion so we can never render `[object Object]`.
+  const areaChainQuery = useAreaChain({
+    areaId: (resource && resource.areaId) || null,
+    enabled: Boolean(resource && resource.areaId),
+  });
+  const chainNodes = useMemo(() => {
+    const data = areaChainQuery.data;
+    if (!data) return [];
+    const chain = Array.isArray(data.chain) ? data.chain : [];
+    return chain
+      .map((n) => {
+        if (!n || typeof n !== 'object') return null;
+        const name = typeof n.name === 'string' ? n.name : null;
+        if (!name) return null;
+        return { id: n.id, level: n.level, name };
+      })
+      .filter(Boolean);
+  }, [areaChainQuery.data]);
+  const areaChainLabel = chainNodes.length
+    ? chainNodes.map((n) => n.name).join(' › ')
+    : null;
+
   return (
     <div className="space-y-6">
       <BackBar />
@@ -99,23 +161,101 @@ export default function ResourceDetailsPage() {
       {resource && (
         <>
           <Header resource={resource} />
-          <Description text={resource.description} />
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-6">
-              <DetailsGrid resource={resource} distance={distance} />
-              <ActionRow resource={resource} user={user} />
-            </div>
+          <div className="grid items-start gap-6 md:grid-cols-2">
+            <DetailsGrid
+              resource={resource}
+              distance={distance}
+              areaChainLabel={areaChainLabel}
+              areaChainLoading={areaChainQuery.isLoading}
+              chainNodes={chainNodes}
+            />
             <div>
-              <PhotoGallery
-                photos={resource.photos || []}
-                title={resource.title}
-                category={resource.category}
-              />
+              {hasLocation && (
+                <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-slate-200 bg-white p-1 text-xs shadow-sm">
+                  {/* Toggle order: Map on the LEFT, Photo on the RIGHT
+                      (the natural read order since map is the default
+                      and photo is the fallback). */}
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('map')}
+                    aria-pressed={viewMode === 'map'}
+                    className={
+                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
+                      (viewMode === 'map'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-700 hover:bg-slate-100')
+                    }
+                  >
+                    Show on map
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('photo')}
+                    aria-pressed={viewMode === 'photo'}
+                    className={
+                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
+                      (viewMode === 'photo'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-700 hover:bg-slate-100')
+                    }
+                  >
+                    Photo
+                  </button>
+                </div>
+              )}
+              {/* The right column is a fixed 4:3 frame — same height
+                  whether you're looking at the photo gallery or the
+                  map. The toggle no longer drags the column around. */}
+              {viewMode === 'map' && hasLocation ? (
+                <ResourceMapPin resource={resource} />
+              ) : (
+                <PhotoGallery
+                  photos={resource.photos || []}
+                  title={resource.title}
+                  category={resource.category}
+                />
+              )}
             </div>
           </div>
+
+          {/* Booking / action panel — full-width row below the two-
+              column Details + Gallery grid. The card's text + button
+              are centred; the card itself spans the full content
+              width so it lines up with the rest of the page. */}
+          <ActionRow resource={resource} user={user} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Read-only map surface for a single resource — shows the location
+ * coordinate pinned on the standard OSM tile layer. Modeled after
+ * `AreaSelector`'s read-only branch so the project keeps a single
+ * map style.
+ */
+function ResourceMapPin({ resource }) {
+  const [lng, lat] = resource.location.coordinates;
+  return (
+    <div className="aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <MapContainer
+        center={[lat, lng]}
+        zoom={SEARCH_RESULT_ZOOM}
+        scrollWheelZoom={false}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <Marker
+          position={[lat, lng]}
+          draggable={false}
+          eventHandlers={{ click: () => {} }}
+        />
+      </MapContainer>
     </div>
   );
 }
@@ -216,18 +356,22 @@ function PhotoGallery({ photos, title, category }) {
 
   const current = list[Math.max(0, Math.min(active, list.length - 1))];
 
+  // The gallery sits inside a fixed-aspect right column. The active
+  // photo card is also a 4:3 frame so it stays the same height as
+  // the map pin; the thumbnail strip sits at its natural height
+  // underneath.
   return (
     <div className="space-y-2">
       <button
         type="button"
         onClick={() => setActive(Math.max(0, Math.min(active, list.length - 1)))}
-        className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+        className="block aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
         aria-label={`Photo ${active + 1} of ${list.length}`}
       >
         <img
           src={current.url}
           alt={title ? `${title} — photo ${active + 1}` : `Photo ${active + 1}`}
-          className="aspect-[4/3] w-full object-cover"
+          className="h-full w-full object-cover"
         />
       </button>
       {list.length > 1 && (
@@ -260,24 +404,59 @@ function PhotoGallery({ photos, title, category }) {
   );
 }
 
-// ── Description ──────────────────────────────────────────────────────────
+// ── Details grid ─────────────────────────────────────────────────────────
 
-function Description({ text }) {
-  if (!text) return null;
+// DescriptionRow — inline collapsible description used inside the
+// Details card. Short descriptions render as a single block. Long
+// descriptions clamp to 3 lines behind a "See more" toggle; clicking
+// expands to the full text and the button label flips to "See less".
+//
+// Threshold is character-based (200 chars) rather than line-count
+// because line count varies with viewport / font. The clamp is a
+// CSS line-clamp so the underlying DOM stays the same — the
+// "expanded" state just removes the clamp utility.
+const DESCRIPTION_CLAMP_CHARS = 200;
+
+function DescriptionRow({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  const longText = (text || '').length > DESCRIPTION_CLAMP_CHARS;
   return (
-    <section>
-      <h2 className="text-base font-semibold text-slate-900">Description</h2>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+    <div>
+      <p
+        className={
+          'whitespace-pre-wrap text-sm leading-relaxed text-slate-700 ' +
+          (longText && !expanded ? 'line-clamp-3' : '')
+        }
+      >
         {text}
       </p>
-    </section>
+      {longText && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-1 text-xs font-medium text-alert-700 hover:text-alert-800 hover:underline"
+        >
+          {expanded ? 'See less' : 'See more'}
+        </button>
+      )}
+    </div>
   );
 }
 
-// ── Details grid ─────────────────────────────────────────────────────────
-
-function DetailsGrid({ resource, distance }) {
+function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, chainNodes }) {
   const rows = [];
+  // Description lives as the FIRST row of the Details card — before
+  // Category — so volunteers see what the resource is for first.
+  // Long descriptions collapse to 3 lines with a "See more" toggle
+  // that expands inline; the toggle is hidden entirely for short
+  // descriptions so we don't add visual noise for the common case.
+  if (resource.description) {
+    rows.push({
+      label: 'Description',
+      value: <DescriptionRow text={resource.description} />,
+    });
+  }
   rows.push({
     label: 'Category',
     value: (
@@ -299,18 +478,42 @@ function DetailsGrid({ resource, distance }) {
       value: conditionLabel(resource.condition),
     });
   }
-  rows.push({
-    label: 'Status',
-    value: (RESOURCE_STATUS[resource.status] || {}).label || resource.status,
-  });
+  // Status + listed-date rows intentionally REMOVED from the Details
+  // card — they're either redundant (status shows in the header
+  // badge) or non-essential (listed date doesn't help the volunteer
+  // decide). The Details card now stays tight: category, capacity,
+  // condition, address, distance, registered by.
   if (resource.areaId) {
+    // Render the full hierarchy ("district › upazila › union") when
+    // the chain is available, the leaf name while the chain is still
+    // loading, the hex hint as a last resort fallback.
+    // The chain is rendered as a list of explicit <span> nodes with
+    // a ' › ' separator so React can never coerce an object into
+    // "[object Object]" here.
+    let areaValue;
+    if (chainNodes && chainNodes.length > 0) {
+      areaValue = (
+        <span>
+          {chainNodes.map((node, i) => (
+            <span key={`${node.level || 'level'}-${i}`}>
+              {i > 0 && (
+                <span aria-hidden className="px-1 text-slate-400">›</span>
+              )}
+              {node.name}
+            </span>
+          ))}
+        </span>
+      );
+    } else if (areaChainLoading && resource.areaName) {
+      areaValue = resource.areaName;
+    } else {
+      areaValue = (
+        <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>
+      );
+    }
     rows.push({
-      label: 'Area',
-      // The 4.2 page intentionally surfaces the areaId hex truncated;
-      // Module 4.3 (map view) will resolve the area label via the
-      // cascading Area hook. Showing the hex keeps the page honest
-      // about which admin node the owner picked.
-      value: <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>,
+      label: 'Address',
+      value: areaValue,
     });
   }
   if (distance != null) {
@@ -319,24 +522,22 @@ function DetailsGrid({ resource, distance }) {
       value: `${formatDistance(distance)} away`,
     });
   }
-  if (resource.createdAt) {
-    rows.push({
-      label: 'Listed',
-      value: formatDate(resource.createdAt),
-    });
-  }
-  // The ownerId is a server-side opaque id — we show a short hex hint
-  // so the viewer can see "this resource is registered" but contact
-  // info NEVER appears here. Module 5.2 reveals the owner's contact
-  // info AFTER a request reaches APPROVED + COLLECTED.
+  // The ownerId is shown by NAME on the public details page (it's
+  // already a registered user; the resource itself is browseable).
+  // Contact info (email/phone) NEVER appears here — Module 5.2
+  // reveals the owner's contact info AFTER a request reaches
+  // APPROVED + COLLECTED. Fall back to the hex hint when the name is
+  // missing (older server versions).
   if (resource.ownerId) {
     rows.push({
       label: 'Registered by',
-      value: (
-        <span className="font-mono text-xs text-slate-500">
-          user {(resource.ownerId || '').slice(0, 8)}…
-        </span>
-      ),
+      value: resource.ownerName
+        ? resource.ownerName
+        : (
+          <span className="font-mono text-xs text-slate-500">
+            user {(resource.ownerId || '').slice(0, 8)}…
+          </span>
+        ),
     });
   }
 
@@ -397,16 +598,16 @@ function ActionRow({ resource, user }) {
   }
   if (isOwner) {
     return (
-      <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">
           You registered this resource
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600">
           Manage it from your owner dashboard.
         </p>
         <Link
           to={`/owner/resources`}
-          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Open dashboard
         </Link>
@@ -417,7 +618,7 @@ function ActionRow({ resource, user }) {
   // MODERATOR / ADMIN — no request flow, but they have access to the
   // resource so we show a neutral note.
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 text-center text-sm text-slate-600 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">No actions for your role</h2>
       <p className="mt-1 text-sm">
         Requesting a resource is for volunteers. Moderators can manage
@@ -462,18 +663,18 @@ function VolunteerRequestCTA({ resource, user }) {
   // profile page (Module 6.2 explains what verification means).
   if (!isVerified) {
     return (
-      <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">
           Need this resource?
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600">
           Only verified volunteers can request resources. Verification
           keeps the request flow trusted — see your profile for
           what's needed.
         </p>
         <Link
           to="/profile"
-          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Go to profile
         </Link>
@@ -499,11 +700,11 @@ function VolunteerRequestCTA({ resource, user }) {
 
   if (created) {
     return (
-      <div className="space-y-2 rounded-lg border border-safe-300 bg-safe-50 p-4 shadow-sm">
+      <div className="rounded-lg border border-safe-300 bg-safe-50 p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-safe-800">
           Request sent
         </h2>
-        <p className="text-sm text-safe-800">
+        <p className="mt-1 text-sm text-safe-800">
           The owner has been notified. You'll see updates on your{' '}
           <span className="font-medium">My Requests</span> dashboard —
           contact details are revealed only after the owner approves
@@ -512,7 +713,7 @@ function VolunteerRequestCTA({ resource, user }) {
         <button
           type="button"
           onClick={() => navigate('/volunteer/requests')}
-          className="inline-flex w-full justify-center rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 min-h-[44px]"
         >
           View my requests
         </button>
@@ -521,11 +722,11 @@ function VolunteerRequestCTA({ resource, user }) {
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">
         Need this resource?
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="mt-1 text-sm text-slate-600">
         Volunteers request resources through a brief workflow — the
         owner approves, you collect, and contact details are revealed
         after approval.
@@ -535,17 +736,17 @@ function VolunteerRequestCTA({ resource, user }) {
         onClick={handleRequest}
         disabled={create.isPending || !!disabledReason}
         title={disabledReason || undefined}
-        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
+        className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
       >
         {create.isPending ? 'Sending request…' : 'Request this resource'}
       </button>
       {disabledReason && (
-        <p className="text-xs text-slate-500">{disabledReason}</p>
+        <p className="mt-2 text-xs text-slate-500">{disabledReason}</p>
       )}
       {errorMessage && (
         <p
           role="alert"
-          className="rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs text-alert-800"
+          className="mt-2 rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs text-alert-800"
         >
           {errorMessage}
         </p>

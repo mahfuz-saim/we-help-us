@@ -22,9 +22,7 @@
  * Privacy (KEY DESIGN REMINDER):
  *   The 8.1 controller never surfaces email / phone / password. This
  *   page consumes the public roll-up payloads as-is — no /users/:id,
- *   no /auth/me, no contact-detail fetch. The PrivacyFooter mirrors
- *   the moderator dashboard's explanation so the design intent is
- *   legible.
+ *   no /auth/me, no contact-detail fetch.
  *
  * Role restriction: the route is gated by `ProtectedRoute
  * roles={['MODERATOR','ADMIN']}` in App.jsx. OWNER + VOLUNTEER can't
@@ -49,6 +47,7 @@ import CategoryDonut from '../components/analytics/CategoryDonut';
 import AreaBreakdownChart from '../components/analytics/AreaBreakdownChart';
 import MostUsedTable from '../components/analytics/MostUsedTable';
 import EmergencyAssetsCard from '../components/analytics/EmergencyAssetsCard';
+import EmergencyMapCard from '../components/emergency/EmergencyMapCard';
 
 const DISTRIBUTION_LEVELS = [
   { value: '',          label: 'No roll-up' },
@@ -273,13 +272,9 @@ export default function AnalyticsPage() {
           />
         </Card>
 
-        <Card
-          title="About this view"
-          subtitle="How the dashboard reads the data."
-        >
-          <PrivacyFooter />
-        </Card>
-      </div>
+        </div>
+
+      <EmergencyMapCard />
     </div>
   );
 }
@@ -349,26 +344,6 @@ function Card({ title, subtitle, right, children }) {
       </header>
       <div className="flex-1">{children}</div>
     </section>
-  );
-}
-
-// ── Privacy footer ────────────────────────────────────────────────────────
-
-function PrivacyFooter() {
-  return (
-    <div className="space-y-2 text-sm text-slate-700">
-      <p>
-        Every chart on this dashboard is a roll-up of counts. The 8.1
-        server-side controller strips owner / volunteer contact info
-        from every response, so the page never sees email / phone /
-        password.
-      </p>
-      <p>
-        Use the export button to download a CSV snapshot — the same
-        privacy boundary applies to the downloaded file (counts +
-        area labels only, never contact info).
-      </p>
-    </div>
   );
 }
 

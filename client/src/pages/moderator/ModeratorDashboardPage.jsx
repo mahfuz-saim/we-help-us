@@ -80,7 +80,7 @@
  *     or phone).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -94,6 +94,11 @@ import {
   useEmergencyMode,
   useSetEmergencyMode,
 } from '../../hooks/useEmergencyMode';
+import EmergencyActivationDialog from '../../components/emergency/EmergencyActivationDialog';
+import {
+  useEmergencyActivations,
+} from '../../hooks/useEmergencyActivations';
+import { useAreaChain } from '../../hooks/useAreas';
 import {
   getCategoryEmoji,
   getCategoryLabel,
@@ -147,6 +152,12 @@ export default function ModeratorDashboardPage() {
   // requested new state so the dialog can render the right
   // headline ("Activate" vs "Deactivate").
   const [emergencyDialog, setEmergencyDialog] = useState(null);
+  // Module 9 — separate state for the richer EmergencyActivationDialog
+  // (with HIERARCHY/CIRCLE choice + map pin + radius). When this is
+  // non-null, the new dialog renders in addition to the legacy one
+  // (the toggle handler opens the rich dialog).
+  const [emergencyActivationDialogOpen, setEmergencyActivationDialogOpen] =
+    useState(false);
 
   // The list query — area-scoped server-side for MODERATOR callers.
   const list = useModeratorRequests({
@@ -166,6 +177,38 @@ export default function ModeratorDashboardPage() {
     enabled: Boolean(user && user.areaId),
   });
   const setEmergencyMode = useSetEmergencyMode();
+
+  // Module 9 — richer emergency activation dialog (HIERARCHY + CIRCLE).
+  // We read the moderator's own active activations so the deactivate
+  // tab can list them. The server filters by areaId (mod scope) so
+  // we pass the moderator's id; we narrow to the moderator's own
+  // actor.
+  const myActivationsQuery = useEmergencyActivations(
+    { active: true },
+    { enabled: Boolean(user) }
+  );
+  const myActivations = Array.isArray(myActivationsQuery.data)
+    ? myActivationsQuery.data.filter(
+        (a) =>
+          a &&
+          a.activatedByRole === 'MODERATOR' &&
+          a.activatedBy &&
+          user &&
+          a.activatedBy === user.id
+      )
+    : [];
+
+  // Resolve the moderator's areaId label for the locked-root copy
+  // ("Scoped to your assigned area: <label>").
+  const moderatorChain = useAreaChain({
+    areaId: user && user.areaId ? user.areaId : null,
+    enabled: Boolean(user && user.areaId),
+  });
+  const moderatorAreaLabel = useMemo(() => {
+    const c = moderatorChain.data && moderatorChain.data.chain;
+    if (!Array.isArray(c) || c.length === 0) return null;
+    return c.map((n) => n && n.name).filter(Boolean).join(' › ') || null;
+  }, [moderatorChain.data]);
 
   const reject = useRejectModeratorRequest();
 
@@ -221,13 +264,16 @@ export default function ModeratorDashboardPage() {
   }
 
   function handleOpenEmergencyToggle() {
-    const isActive = Boolean(
-      emergencyMode.data && emergencyMode.data.isActive
-    );
-    setEmergencyDialog({ isActive: !isActive });
+    // Module 9 — open the richer dialog instead of the legacy note-only
+    // modal. The legacy PATCH /moderator/emergency-mode endpoint is
+    // still functional (server shim) and `useEmergencyMode` continues
+    // to drive the banner read; this dialog just gives moderators
+    // access to per-scope (HIERARCHY/CIRCLE) toggling with a message.
+    setEmergencyActivationDialogOpen(true);
   }
 
   function handleCloseEmergencyToggle() {
+    setEmergencyActivationDialogOpen(false);
     if (!setEmergencyMode.isPending) setEmergencyDialog(null);
   }
 
@@ -327,6 +373,13 @@ export default function ModeratorDashboardPage() {
           pending={setEmergencyMode.isPending}
         />
       )}
+
+      <EmergencyActivationDialog
+        moderatorAreaLabel={moderatorAreaLabel}
+        existingActivations={myActivations}
+        isOpen={emergencyActivationDialogOpen}
+        onClose={() => setEmergencyActivationDialogOpen(false)}
+      />
 
       <PrivacyFooter />
     </div>

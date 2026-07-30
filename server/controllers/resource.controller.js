@@ -35,6 +35,7 @@ const Resource = require('../models/Resource');
 const User = require('../models/User');
 const { cloudinary, isCloudinaryConfigured } = require('../config/cloudinary');
 const { FORBIDDEN_FIELDS } = require('../validators/resource.validators');
+const { isAreaInEmergency, isAreaInEmergencyBulk } = require('../utils/emergencyScope');
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -44,11 +45,75 @@ const MAX_RADIUS_METERS = 100000; // 100 km
 // Owner-facing fields explicitly stripped from list/single responses.
 // This is the privacy boundary — we strip on the way OUT, not on the
 // way IN, so the underlying record keeps its integrity.
-function publicResource(doc) {
+//
+// Module 9 — `areaEmergencyActive` is computed by the controllers
+// (listResources / getResource) and passed in via the optional
+// `_emergencyActive` field on the doc, OR via the second argument
+// `extra`. Default false so older call sites keep working.
+function publicResource(doc, extra = {}) {
   const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  const emergencyActive =
+    typeof obj._emergencyActive === 'boolean'
+      ? obj._emergencyActive
+      : extra.emergencyActive === true;
+  // After `.populate('ownerId', 'name')` the `ownerId` field becomes a
+  // populated subdoc like `{ _id, name }`. When unpopulated (the
+  // create / list / update paths do not populate), it's still a raw
+  // ObjectId. Handle both shapes so this helper stays safe across all
+  // call sites. Same for `areaId`.
+  //
+  // Critical: calling `.toString()` on a populated plain object
+  // yields `'[object Object]'` (the default Object.prototype.toString
+  // for objects without a specialised [Symbol.toStringTag]), which
+  // is exactly the bug that surfaced as a 400 from GET /api/areas/:id
+  // — the client received resource.areaId === '[object Object]' and
+  // forwarded it to the area-chain hook. We use a defensive stringId
+  // helper that always returns a valid ObjectId-shaped string (or
+  // null) regardless of population state. The helper below mirrors
+  // the same approach used in request.controller.js / publicRequest.
+  const stringId = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'string') return v;
+    if (v instanceof Buffer) return v.toString();
+    // Populated subdoc shape: { _id, name }
+    if (v && v._id) {
+      const id = v._id;
+      if (typeof id === 'string') return id;
+      if (id && typeof id.toString === 'function') {
+        const s = id.toString();
+        if (s && s !== '[object Object]') return s;
+      }
+    }
+    // Some mongoose toJSON shapes emit `id` (string) instead of `_id`.
+    if (v && typeof v.id === 'string') return v.id;
+    // Raw ObjectId — its toString returns the 24-char hex, never
+    // '[object Object]'. Last resort; ignore the '[object Object]'
+    // sentinel.
+    if (v && typeof v.toString === 'function' && v.toString !== Object.prototype.toString) {
+      const s = v.toString();
+      if (s && s !== '[object Object]') return s;
+    }
+    return null;
+  };
+  const ownerName = (() => {
+    const v = obj.ownerId;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      // populated subdoc — has a `.name`
+      return typeof v.name === 'string' ? v.name : null;
+    }
+    return null;
+  })();
+  const areaName = (() => {
+    const v = obj.areaId;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return typeof v.name === 'string' ? v.name : null;
+    }
+    return null;
+  })();
   return {
     id: obj.id,
-    ownerId: obj.ownerId ? obj.ownerId.toString() : null,
+    ownerId: stringId(obj.ownerId),
+    ownerName,
     category: obj.category,
     title: obj.title,
     description: obj.description,
@@ -56,10 +121,14 @@ function publicResource(doc) {
     capacity: obj.capacity ?? null,
     condition: obj.condition,
     status: obj.status,
-    areaId: obj.areaId ? obj.areaId.toString() : null,
+    areaId: stringId(obj.areaId),
+    areaName,
     location: obj.location || null,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
+    // Module 9: emergency-active signal. Bulk-evaluated by the
+    // controllers; default false so older call sites keep working.
+    areaEmergencyActive: emergencyActive,
     // intentionally omitted: __v, _id, owner contact info
   };
 }
@@ -242,8 +311,33 @@ async function listResources(req, res, next) {
       Resource.countDocuments(filter),
     ]);
 
+    // Module 9 — annotate each row with the emergency-active flag.
+    // ONE bulk query handles HIERARCHY (per-area ancestor walk) +
+    // ONE for CIRCLE regardless of page size. The helper's request-
+    // scoped memo collapses duplicate (areaId, lat, lng) tuples.
+    const emergencyItems = docs.map((d) => {
+      const areaId = d.areaId
+        ? (typeof d.areaId.toString === 'function' ? d.areaId.toString() : d.areaId)
+        : null;
+      const coords = d.location && Array.isArray(d.location.coordinates)
+        ? d.location.coordinates
+        : null;
+      return {
+        areaId,
+        lat: Array.isArray(coords) ? coords[1] : null,
+        lng: Array.isArray(coords) ? coords[0] : null,
+      };
+    });
+    const emergencyMap = await isAreaInEmergencyBulk(emergencyItems);
+
     return ok(res, {
-      resources: docs.map(publicResource),
+      resources: docs.map((d) => {
+        const areaIdStr = d.areaId
+          ? (typeof d.areaId.toString === 'function' ? d.areaId.toString() : String(d.areaId))
+          : null;
+        const flag = areaIdStr ? emergencyMap.get(areaIdStr) === true : false;
+        return publicResource(d, { emergencyActive: flag });
+      }),
       pagination: {
         page,
         limit,
@@ -257,13 +351,38 @@ async function listResources(req, res, next) {
 }
 
 // ── GET /api/resources/:id ────────────────────────────────────────────────
+// Single resource. Populates `ownerId` (name only) and `areaId` (name
+// only) so the resource details page can render the owner + area
+// names instead of opaque hex ids. Contact info (email/phone) is
+// NEVER populated here — that surfaces only through the request
+// lifecycle once a request reaches APPROVED + COLLECTED (Module 5.2).
 async function getResource(req, res, next) {
   try {
-    const doc = await Resource.findById(req.params.id);
+    const doc = await Resource.findById(req.params.id)
+      .populate('ownerId', 'name')
+      .populate('areaId', 'name');
     if (!doc) {
       throw new ApiError(404, 'Resource not found');
     }
-    return ok(res, { resource: publicResource(doc) }, 'Resource fetched');
+    // Module 9 — single-row emergency check.
+    const coords = doc.location && Array.isArray(doc.location.coordinates)
+      ? doc.location.coordinates
+      : null;
+    const areaIdRaw = doc.areaId
+      ? (doc.areaId._id ? doc.areaId._id : doc.areaId)
+      : null;
+    const flag = areaIdRaw
+      ? await isAreaInEmergency({
+          areaId: areaIdRaw,
+          lat: Array.isArray(coords) ? coords[1] : null,
+          lng: Array.isArray(coords) ? coords[0] : null,
+        })
+      : false;
+    return ok(
+      res,
+      { resource: publicResource(doc, { emergencyActive: flag }) },
+      'Resource fetched'
+    );
   } catch (err) {
     next(err);
   }
@@ -315,7 +434,22 @@ async function updateResource(req, res, next) {
     doc.set(updates);
     await doc.save();
 
-    return ok(res, { resource: publicResource(doc) }, 'Resource updated');
+    // Module 9 — surface the emergency-active flag on update too.
+    const coords = doc.location && Array.isArray(doc.location.coordinates)
+      ? doc.location.coordinates
+      : null;
+    const flag = doc.areaId
+      ? await isAreaInEmergency({
+          areaId: doc.areaId,
+          lat: Array.isArray(coords) ? coords[1] : null,
+          lng: Array.isArray(coords) ? coords[0] : null,
+        })
+      : false;
+    return ok(
+      res,
+      { resource: publicResource(doc, { emergencyActive: flag }) },
+      'Resource updated'
+    );
   } catch (err) {
     next(err);
   }

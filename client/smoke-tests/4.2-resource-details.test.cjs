@@ -206,20 +206,30 @@ async function run() {
   {
     const src = fs.readFileSync(PAGE_PATH, 'utf8');
 
-    // Sub-components present.
+    // Sub-components present. Description as a standalone component
+    // has been folded into DetailsGrid (rendered as the first row),
+    // so it's no longer a top-level function — DescriptionRow IS.
+    // Use a word-boundary regex so we don't false-positive on
+    // "DescriptionRow" containing the substring "Description".
     for (const name of [
       'BackBar',
       'Header',
       'PhotoGallery',
-      'Description',
       'DetailsGrid',
       'ActionRow',
       'VolunteerRequestCTA',
       'LoadingState',
       'ErrorBanner',
     ]) {
-      assert(src.includes(`function ${name}`), `page defines ${name}`);
+      assert(
+        new RegExp(`\\bfunction\\s+${name}\\b`).test(src),
+        `page defines ${name}`
+      );
     }
+    assert(
+      /\bfunction\s+DescriptionRow\b/.test(src),
+      'page defines DescriptionRow (folded into DetailsGrid)'
+    );
 
     // Hook + auth wired.
     assert(/useResource\s*\(/.test(src), 'page calls useResource');
@@ -240,11 +250,152 @@ async function run() {
     assert(/resource\.description/.test(src), 'page reads description');
     assert(/resource\.title/.test(src), 'page reads title');
     assert(/resource\.capacity/.test(src), 'page reads capacity');
+
+    // Description is rendered as the FIRST row of the Details card
+    // (before Category). Source order is what we assert here — the
+    // DescriptionRow push must precede the Category push in the
+    // DetailsGrid body.
+    const descRowIdx = src.indexOf("label: 'Description'");
+    const categoryRowIdx = src.indexOf("label: 'Category'");
+    assert(
+      descRowIdx > 0 && categoryRowIdx > 0 && descRowIdx < categoryRowIdx,
+      'Description row is rendered BEFORE Category in the Details card'
+    );
+    // And: the standalone <Description /> component no longer lives
+    // as a top-level <section> above the grid. We assert by searching
+    // for the JSX call site "<Description text=" — if present at the
+    // top level, that would render a duplicate description block.
+    assert(
+      !/<Description\s+text=/.test(src),
+      'page no longer renders a standalone <Description text=… /> section above the grid'
+    );
+    // See-more toggle on long descriptions.
+    assert(/See more/.test(src),
+      'DescriptionRow renders a "See more" toggle for long text');
+    assert(/See less/.test(src),
+      'DescriptionRow flips the toggle label to "See less" when expanded');
+    assert(/line-clamp-3/.test(src),
+      'DescriptionRow clamps long text to 3 lines via line-clamp-3');
+    assert(/aria-expanded/.test(src),
+      'See more button exposes aria-expanded for screen readers');
+
+    // Map-on-load: page must default to map AND re-assert the map
+    // view once the resource arrives with a real location, so the
+    // user never briefly sees the photo placeholder on first load.
+    assert(/useState\(\s*['"]map['"]\s*\)/.test(src),
+      'photo/map toggle defaults to "map"');
+    assert(
+      /if\s*\(\s*hasLocation\s*\)\s*\{[\s\S]*?setViewMode\(\s*['"]map['"]\s*\)/.test(src),
+      'page re-asserts map view when the resource arrives with a location'
+    );
+    assert(
+      /if\s*\(\s*!\s*resource\s*\)\s*return/.test(src),
+      'photo/map effect short-circuits while the resource is still loading'
+    );
     assert(/resource\.condition/.test(src), 'page reads condition');
     assert(/resource\.areaId/.test(src), 'page reads areaId');
+    assert(/resource\.areaName/.test(src), 'page reads areaName (server-populated area label)');
     assert(/resource\.location/.test(src), 'page reads location');
-    assert(/resource\.createdAt/.test(src), 'page reads createdAt');
+    // createdAt intentionally no longer read — the "Listed" row was
+    // removed from the Details card so the section stays focused on
+    // decision-relevant fields. updatedAt still renders in the header
+    // ("updated <date>"), so we keep that assertion.
     assert(/resource\.updatedAt/.test(src), 'page reads updatedAt');
+    assert(/resource\.ownerName/.test(src), 'page reads ownerName (server-populated owner label)');
+
+    // Address chain (district > upazila > ...) — the page fetches the
+    // full ancestor chain and renders it via the existing
+    // useAreaChain hook. Verify the wiring.
+    assert(/useAreaChain/.test(src),
+      'page calls useAreaChain to resolve the address hierarchy');
+    assert(/areaChainLabel/.test(src),
+      'page renders an areaChainLabel (district › upazila › …)');
+
+    // Photo / map toggle — when the resource has a location, the
+    // page exposes a "Show on map" toggle that swaps the gallery
+    // for a Leaflet map pinned to the coordinate.
+    assert(/Show on map/.test(src),
+      'page renders a "Show on map" toggle');
+    assert(/MapContainer/.test(src),
+      'page mounts a react-leaflet MapContainer for the pinned location');
+    assert(/TileLayer/.test(src),
+      'page mounts a TileLayer (OSM) inside the map view');
+
+    // Layout polish (Module 4.2 iteration):
+    //   - Map is the DEFAULT view (with photo as fallback when no
+    //     location is set). The toggle row lists "Show on map" on
+    //     the LEFT and "Photo" on the RIGHT (read order matches the
+    //     default view).
+    //   - The right column (photo gallery / map pin) is a fixed 4:3
+    //     frame so it never stretches when the Details card grows
+    //     taller. Both the empty-state placeholder and the active
+    //     photo card use `aspect-[4/3]`; the map pin wrapper does
+    //     the same. The grid switches from items-stretch to
+    //     items-start so neither column tries to drag the other.
+    //   - The "Status" and "Listed" rows are intentionally removed
+    //     from the Details card so it stays focused on decision-
+    //     relevant fields (status still surfaces via the header
+    //     badge).
+    //   - The bottom booking CTA (VolunteerRequestCTA / owner view
+    //     / moderator view) lives as a full-width row below the
+    //     two-column grid. Title + paragraph + button are all
+    //     centre-aligned.
+    // (default-to-map is asserted above in section 5 with the
+    // stronger "re-asserts on resource arrival" check.)
+    // Toggle order — the button labelled "Show on map" renders BEFORE
+    // the button labelled "Photo" in the source. We scan for the
+    // inner <button>...</button> nodes and confirm their relative
+    // position. We restrict the search to AFTER the useState
+    // initializer (which contains 'map' as a default) so the
+    // assertion reflects the toggle row, not the state hook.
+    const toggleRowStart = src.indexOf('aria-pressed={viewMode === \'map\'}');
+    const toggleRowEnd = src.indexOf('aria-pressed={viewMode === \'photo\'}');
+    assert(
+      toggleRowStart > 0 && toggleRowEnd > 0,
+      'toggle row contains both map + photo buttons'
+    );
+    assert(
+      toggleRowStart < toggleRowEnd,
+      '"Show on map" toggle button is rendered to the LEFT of "Photo"'
+    );
+    assert(/aspect-\[4\/3\]/.test(src),
+      'photo gallery / map pin uses aspect-[4/3] for a fixed 4:3 frame');
+    assert(!/items-stretch/.test(src),
+      'two-column grid no longer uses items-stretch (right column is fixed-aspect)');
+    assert(!/max-w-2xl/.test(src),
+      'booking CTA no longer wraps in a max-w-2xl container (full-width row)');
+    assert(
+      !/label:\s*['"]Status['"]/.test(src),
+      'Details card no longer renders a "Status" row (badge in header)'
+    );
+    assert(
+      !/label:\s*['"]Listed['"]/.test(src),
+      'Details card no longer renders a "Listed" row'
+    );
+    // Booking CTA centred. We assert the three ActionRow / CTA
+    // branches all carry text-center (volunteer default, volunteer
+    // unverified, volunteer created, owner-of-resource, moderator).
+    // The patterns we use are the inner card class lists.
+    const centredCardCount = (
+      src.match(/rounded-lg border border-\S+ bg-\S+ p-4 text-center/g) || []
+    ).length;
+    assert(
+      centredCardCount >= 4,
+      `at least 4 booking-CTA cards carry text-center (got ${centredCardCount})`
+    );
+    // The full-width row wraps <ActionRow /> OUTSIDE the DetailsGrid
+    // grid container — i.e. not as a child of the md:grid-cols-2 row.
+    // We check structurally: the ActionRow call site lives after the
+    // closing </div> of the grid in the source. Easier proxy: the
+    // ActionRow call no longer sits adjacent to the DetailsGrid call
+    // inside a single `space-y-6` left-column wrapper.
+    const actionRowContext = src.match(
+      /<DetailsGrid[\s\S]*?<\/DetailsGrid>\s*<div[\s\S]{0,300}?<ActionRow[\s\S]*?<\/ActionRow>/
+    );
+    assert(
+      !actionRowContext,
+      'ActionRow no longer renders as a sibling of DetailsGrid inside a left-column wrapper'
+    );
 
     // 404 handling — page should bounce to /resources when the
     // server reports the id is unknown.
