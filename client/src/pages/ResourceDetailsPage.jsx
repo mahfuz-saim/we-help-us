@@ -150,18 +150,15 @@ export default function ResourceDetailsPage() {
           <Header resource={resource} />
           <Description text={resource.description} />
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-6">
-              <DetailsGrid
-                resource={resource}
-                distance={distance}
-                areaChainLabel={areaChainLabel}
-                areaChainLoading={areaChainQuery.isLoading}
-                chainNodes={chainNodes}
-              />
-              <ActionRow resource={resource} user={user} />
-            </div>
-            <div>
+          <div className="grid items-stretch gap-6 md:grid-cols-2">
+            <DetailsGrid
+              resource={resource}
+              distance={distance}
+              areaChainLabel={areaChainLabel}
+              areaChainLoading={areaChainQuery.isLoading}
+              chainNodes={chainNodes}
+            />
+            <div className="flex flex-col">
               {hasLocation && (
                 <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-slate-200 bg-white p-1 text-xs shadow-sm">
                   <button
@@ -192,16 +189,26 @@ export default function ResourceDetailsPage() {
                   </button>
                 </div>
               )}
-              {viewMode === 'map' && hasLocation ? (
-                <ResourceMapPin resource={resource} />
-              ) : (
-                <PhotoGallery
-                  photos={resource.photos || []}
-                  title={resource.title}
-                  category={resource.category}
-                />
-              )}
+              <div className="flex-1">
+                {viewMode === 'map' && hasLocation ? (
+                  <ResourceMapPin resource={resource} />
+                ) : (
+                  <PhotoGallery
+                    photos={resource.photos || []}
+                    title={resource.title}
+                    category={resource.category}
+                  />
+                )}
+              </div>
             </div>
+          </div>
+
+          {/* Booking / action panel — full-width row below the two-
+              column Details + Gallery grid. Centred horizontally
+              inside the same max-width container as the rest of the
+              page so it lines up with the rest of the layout. */}
+          <div className="mx-auto w-full max-w-2xl">
+            <ActionRow resource={resource} user={user} />
           </div>
         </>
       )}
@@ -218,7 +225,7 @@ export default function ResourceDetailsPage() {
 function ResourceMapPin({ resource }) {
   const [lng, lat] = resource.location.coordinates;
   return (
-    <div className="aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="h-full min-h-[260px] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <MapContainer
         center={[lat, lng]}
         zoom={SEARCH_RESULT_ZOOM}
@@ -328,25 +335,31 @@ function PhotoGallery({ photos, title, category }) {
       <img
         src={getCategoryPlaceholderImage(category, { label: title })}
         alt={title ? `${title} placeholder` : 'Resource placeholder'}
-        className="aspect-[4/3] w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+        className="h-full w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
       />
     );
   }
 
   const current = list[Math.max(0, Math.min(active, list.length - 1))];
 
+  // The gallery is wrapped in a flex column (`flex-1`) by the parent
+  // so its active image card stretches to match the Details column
+  // height. The thumbnail strip sits at the natural height under it;
+  // the image button uses `h-full` on a flex child so it fills the
+  // available vertical space (the inner <img> uses object-cover so
+  // it never stretches awkwardly).
   return (
-    <div className="space-y-2">
+    <div className="flex h-full flex-col gap-2">
       <button
         type="button"
         onClick={() => setActive(Math.max(0, Math.min(active, list.length - 1)))}
-        className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+        className="block h-full min-h-0 w-full flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
         aria-label={`Photo ${active + 1} of ${list.length}`}
       >
         <img
           src={current.url}
           alt={title ? `${title} — photo ${active + 1}` : `Photo ${active + 1}`}
-          className="aspect-[4/3] w-full object-cover"
+          className="h-full w-full object-cover"
         />
       </button>
       {list.length > 1 && (
@@ -418,10 +431,11 @@ function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, cha
       value: conditionLabel(resource.condition),
     });
   }
-  rows.push({
-    label: 'Status',
-    value: (RESOURCE_STATUS[resource.status] || {}).label || resource.status,
-  });
+  // Status + listed-date rows intentionally REMOVED from the Details
+  // card — they're either redundant (status shows in the header
+  // badge) or non-essential (listed date doesn't help the volunteer
+  // decide). The Details card now stays tight: category, capacity,
+  // condition, address, distance, registered by.
   if (resource.areaId) {
     // Render the full hierarchy ("district › upazila › union") when
     // the chain is available, the leaf name while the chain is still
@@ -461,12 +475,6 @@ function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, cha
       value: `${formatDistance(distance)} away`,
     });
   }
-  if (resource.createdAt) {
-    rows.push({
-      label: 'Listed',
-      value: formatDate(resource.createdAt),
-    });
-  }
   // The ownerId is shown by NAME on the public details page (it's
   // already a registered user; the resource itself is browseable).
   // Contact info (email/phone) NEVER appears here — Module 5.2
@@ -487,7 +495,7 @@ function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, cha
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">Details</h2>
       <dl className="mt-3 divide-y divide-slate-100">
         {rows.map((row) => (

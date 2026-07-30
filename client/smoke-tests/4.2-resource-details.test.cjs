@@ -244,7 +244,10 @@ async function run() {
     assert(/resource\.areaId/.test(src), 'page reads areaId');
     assert(/resource\.areaName/.test(src), 'page reads areaName (server-populated area label)');
     assert(/resource\.location/.test(src), 'page reads location');
-    assert(/resource\.createdAt/.test(src), 'page reads createdAt');
+    // createdAt intentionally no longer read — the "Listed" row was
+    // removed from the Details card so the section stays focused on
+    // decision-relevant fields. updatedAt still renders in the header
+    // ("updated <date>"), so we keep that assertion.
     assert(/resource\.updatedAt/.test(src), 'page reads updatedAt');
     assert(/resource\.ownerName/.test(src), 'page reads ownerName (server-populated owner label)');
 
@@ -265,6 +268,45 @@ async function run() {
       'page mounts a react-leaflet MapContainer for the pinned location');
     assert(/TileLayer/.test(src),
       'page mounts a TileLayer (OSM) inside the map view');
+
+    // Layout polish (Module 4.2 iteration):
+    //   - Details card and image/map column stretch to equal heights.
+    //   - The "Status" and "Listed" rows are intentionally removed
+    //     from the Details card so it stays focused on decision-
+    //     relevant fields (status still surfaces via the header
+    //     badge).
+    //   - The bottom booking CTA (VolunteerRequestCTA) lives in a
+    //     full-width row below the two-column grid (max-w-2xl +
+    //     centred), not inside the left column.
+    assert(/items-stretch/.test(src),
+      'two-column grid uses items-stretch so both columns share height');
+    assert(/flex\s+h-full\s+flex-col/.test(src),
+      'Details card uses flex h-full flex-col to fill its column');
+    assert(
+      !/label:\s*['"]Status['"]/.test(src),
+      'Details card no longer renders a "Status" row (badge in header)'
+    );
+    assert(
+      !/label:\s*['"]Listed['"]/.test(src),
+      'Details card no longer renders a "Listed" row'
+    );
+    assert(
+      /max-w-2xl/.test(src),
+      'booking CTA sits in a centred max-w-2xl full-width row'
+    );
+    // The full-width row wraps <ActionRow /> OUTSIDE the DetailsGrid
+    // grid container — i.e. not as a child of the md:grid-cols-2 row.
+    // We check structurally: the ActionRow call site lives after the
+    // closing </div> of the grid in the source. Easier proxy: the
+    // ActionRow call no longer sits adjacent to the DetailsGrid call
+    // inside a single `space-y-6` left-column wrapper.
+    const actionRowContext = src.match(
+      /<DetailsGrid[\s\S]*?<\/DetailsGrid>\s*<div[\s\S]{0,300}?<ActionRow[\s\S]*?<\/ActionRow>/
+    );
+    assert(
+      !actionRowContext,
+      'ActionRow no longer renders as a sibling of DetailsGrid inside a left-column wrapper'
+    );
 
     // 404 handling — page should bounce to /resources when the
     // server reports the id is unknown.
