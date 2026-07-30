@@ -270,18 +270,48 @@ async function run() {
       'page mounts a TileLayer (OSM) inside the map view');
 
     // Layout polish (Module 4.2 iteration):
-    //   - Details card and image/map column stretch to equal heights.
+    //   - Map is the DEFAULT view (with photo as fallback when no
+    //     location is set). The toggle row lists "Show on map" on
+    //     the LEFT and "Photo" on the RIGHT (read order matches the
+    //     default view).
+    //   - The right column (photo gallery / map pin) is a fixed 4:3
+    //     frame so it never stretches when the Details card grows
+    //     taller. Both the empty-state placeholder and the active
+    //     photo card use `aspect-[4/3]`; the map pin wrapper does
+    //     the same. The grid switches from items-stretch to
+    //     items-start so neither column tries to drag the other.
     //   - The "Status" and "Listed" rows are intentionally removed
     //     from the Details card so it stays focused on decision-
     //     relevant fields (status still surfaces via the header
     //     badge).
-    //   - The bottom booking CTA (VolunteerRequestCTA) lives in a
-    //     full-width row below the two-column grid (max-w-2xl +
-    //     centred), not inside the left column.
-    assert(/items-stretch/.test(src),
-      'two-column grid uses items-stretch so both columns share height');
-    assert(/flex\s+h-full\s+flex-col/.test(src),
-      'Details card uses flex h-full flex-col to fill its column');
+    //   - The bottom booking CTA (VolunteerRequestCTA / owner view
+    //     / moderator view) lives as a full-width row below the
+    //     two-column grid. Title + paragraph + button are all
+    //     centre-aligned.
+    assert(/useState\(\s*['"]map['"]\s*\)/.test(src),
+      'photo/map toggle defaults to "map"');
+    // Toggle order — the button labelled "Show on map" renders BEFORE
+    // the button labelled "Photo" in the source. We scan for the
+    // inner <button>...</button> nodes and confirm their relative
+    // position. We restrict the search to AFTER the useState
+    // initializer (which contains 'map' as a default) so the
+    // assertion reflects the toggle row, not the state hook.
+    const toggleRowStart = src.indexOf('aria-pressed={viewMode === \'map\'}');
+    const toggleRowEnd = src.indexOf('aria-pressed={viewMode === \'photo\'}');
+    assert(
+      toggleRowStart > 0 && toggleRowEnd > 0,
+      'toggle row contains both map + photo buttons'
+    );
+    assert(
+      toggleRowStart < toggleRowEnd,
+      '"Show on map" toggle button is rendered to the LEFT of "Photo"'
+    );
+    assert(/aspect-\[4\/3\]/.test(src),
+      'photo gallery / map pin uses aspect-[4/3] for a fixed 4:3 frame');
+    assert(!/items-stretch/.test(src),
+      'two-column grid no longer uses items-stretch (right column is fixed-aspect)');
+    assert(!/max-w-2xl/.test(src),
+      'booking CTA no longer wraps in a max-w-2xl container (full-width row)');
     assert(
       !/label:\s*['"]Status['"]/.test(src),
       'Details card no longer renders a "Status" row (badge in header)'
@@ -290,9 +320,16 @@ async function run() {
       !/label:\s*['"]Listed['"]/.test(src),
       'Details card no longer renders a "Listed" row'
     );
+    // Booking CTA centred. We assert the three ActionRow / CTA
+    // branches all carry text-center (volunteer default, volunteer
+    // unverified, volunteer created, owner-of-resource, moderator).
+    // The patterns we use are the inner card class lists.
+    const centredCardCount = (
+      src.match(/rounded-lg border border-\S+ bg-\S+ p-4 text-center/g) || []
+    ).length;
     assert(
-      /max-w-2xl/.test(src),
-      'booking CTA sits in a centred max-w-2xl full-width row'
+      centredCardCount >= 4,
+      `at least 4 booking-CTA cards carry text-center (got ${centredCardCount})`
     );
     // The full-width row wraps <ActionRow /> OUTSIDE the DetailsGrid
     // grid container — i.e. not as a child of the md:grid-cols-2 row.

@@ -93,7 +93,7 @@ export default function ResourceDetailsPage() {
     );
   }, [user, resource]);
 
-  // Photo / map view toggle. Defaults to photo. Auto-resets to
+  // Photo / map view toggle. Defaults to MAP. Auto-resets to
   // 'photo' if the resource has no location so the toggle can't get
   // stuck in an empty-map state.
   const hasLocation =
@@ -103,7 +103,7 @@ export default function ResourceDetailsPage() {
     resource.location.coordinates.length === 2 &&
     Number.isFinite(resource.location.coordinates[0]) &&
     Number.isFinite(resource.location.coordinates[1]);
-  const [viewMode, setViewMode] = useState('photo');
+  const [viewMode, setViewMode] = useState('map');
   useEffect(() => {
     if (!hasLocation && viewMode === 'map') {
       setViewMode('photo');
@@ -150,7 +150,7 @@ export default function ResourceDetailsPage() {
           <Header resource={resource} />
           <Description text={resource.description} />
 
-          <div className="grid items-stretch gap-6 md:grid-cols-2">
+          <div className="grid items-start gap-6 md:grid-cols-2">
             <DetailsGrid
               resource={resource}
               distance={distance}
@@ -158,22 +158,12 @@ export default function ResourceDetailsPage() {
               areaChainLoading={areaChainQuery.isLoading}
               chainNodes={chainNodes}
             />
-            <div className="flex flex-col">
+            <div>
               {hasLocation && (
                 <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-slate-200 bg-white p-1 text-xs shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('photo')}
-                    aria-pressed={viewMode === 'photo'}
-                    className={
-                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
-                      (viewMode === 'photo'
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-700 hover:bg-slate-100')
-                    }
-                  >
-                    Photo
-                  </button>
+                  {/* Toggle order: Map on the LEFT, Photo on the RIGHT
+                      (the natural read order since map is the default
+                      and photo is the fallback). */}
                   <button
                     type="button"
                     onClick={() => setViewMode('map')}
@@ -187,29 +177,41 @@ export default function ResourceDetailsPage() {
                   >
                     Show on map
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('photo')}
+                    aria-pressed={viewMode === 'photo'}
+                    className={
+                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
+                      (viewMode === 'photo'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-700 hover:bg-slate-100')
+                    }
+                  >
+                    Photo
+                  </button>
                 </div>
               )}
-              <div className="flex-1">
-                {viewMode === 'map' && hasLocation ? (
-                  <ResourceMapPin resource={resource} />
-                ) : (
-                  <PhotoGallery
-                    photos={resource.photos || []}
-                    title={resource.title}
-                    category={resource.category}
-                  />
-                )}
-              </div>
+              {/* The right column is a fixed 4:3 frame — same height
+                  whether you're looking at the photo gallery or the
+                  map. The toggle no longer drags the column around. */}
+              {viewMode === 'map' && hasLocation ? (
+                <ResourceMapPin resource={resource} />
+              ) : (
+                <PhotoGallery
+                  photos={resource.photos || []}
+                  title={resource.title}
+                  category={resource.category}
+                />
+              )}
             </div>
           </div>
 
           {/* Booking / action panel — full-width row below the two-
-              column Details + Gallery grid. Centred horizontally
-              inside the same max-width container as the rest of the
-              page so it lines up with the rest of the layout. */}
-          <div className="mx-auto w-full max-w-2xl">
-            <ActionRow resource={resource} user={user} />
-          </div>
+              column Details + Gallery grid. The card's text + button
+              are centred; the card itself spans the full content
+              width so it lines up with the rest of the page. */}
+          <ActionRow resource={resource} user={user} />
         </>
       )}
     </div>
@@ -225,7 +227,7 @@ export default function ResourceDetailsPage() {
 function ResourceMapPin({ resource }) {
   const [lng, lat] = resource.location.coordinates;
   return (
-    <div className="h-full min-h-[260px] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <MapContainer
         center={[lat, lng]}
         zoom={SEARCH_RESULT_ZOOM}
@@ -335,25 +337,23 @@ function PhotoGallery({ photos, title, category }) {
       <img
         src={getCategoryPlaceholderImage(category, { label: title })}
         alt={title ? `${title} placeholder` : 'Resource placeholder'}
-        className="h-full w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+        className="aspect-[4/3] w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
       />
     );
   }
 
   const current = list[Math.max(0, Math.min(active, list.length - 1))];
 
-  // The gallery is wrapped in a flex column (`flex-1`) by the parent
-  // so its active image card stretches to match the Details column
-  // height. The thumbnail strip sits at the natural height under it;
-  // the image button uses `h-full` on a flex child so it fills the
-  // available vertical space (the inner <img> uses object-cover so
-  // it never stretches awkwardly).
+  // The gallery sits inside a fixed-aspect right column. The active
+  // photo card is also a 4:3 frame so it stays the same height as
+  // the map pin; the thumbnail strip sits at its natural height
+  // underneath.
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div className="space-y-2">
       <button
         type="button"
         onClick={() => setActive(Math.max(0, Math.min(active, list.length - 1)))}
-        className="block h-full min-h-0 w-full flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+        className="block aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
         aria-label={`Photo ${active + 1} of ${list.length}`}
       >
         <img
@@ -495,7 +495,7 @@ function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, cha
   }
 
   return (
-    <section className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">Details</h2>
       <dl className="mt-3 divide-y divide-slate-100">
         {rows.map((row) => (
@@ -551,16 +551,16 @@ function ActionRow({ resource, user }) {
   }
   if (isOwner) {
     return (
-      <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">
           You registered this resource
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600">
           Manage it from your owner dashboard.
         </p>
         <Link
           to={`/owner/resources`}
-          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Open dashboard
         </Link>
@@ -571,7 +571,7 @@ function ActionRow({ resource, user }) {
   // MODERATOR / ADMIN — no request flow, but they have access to the
   // resource so we show a neutral note.
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 text-center text-sm text-slate-600 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">No actions for your role</h2>
       <p className="mt-1 text-sm">
         Requesting a resource is for volunteers. Moderators can manage
@@ -616,18 +616,18 @@ function VolunteerRequestCTA({ resource, user }) {
   // profile page (Module 6.2 explains what verification means).
   if (!isVerified) {
     return (
-      <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">
           Need this resource?
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600">
           Only verified volunteers can request resources. Verification
           keeps the request flow trusted — see your profile for
           what's needed.
         </p>
         <Link
           to="/profile"
-          className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 min-h-[44px]"
         >
           Go to profile
         </Link>
@@ -653,11 +653,11 @@ function VolunteerRequestCTA({ resource, user }) {
 
   if (created) {
     return (
-      <div className="space-y-2 rounded-lg border border-safe-300 bg-safe-50 p-4 shadow-sm">
+      <div className="rounded-lg border border-safe-300 bg-safe-50 p-4 text-center shadow-sm">
         <h2 className="text-base font-semibold text-safe-800">
           Request sent
         </h2>
-        <p className="text-sm text-safe-800">
+        <p className="mt-1 text-sm text-safe-800">
           The owner has been notified. You'll see updates on your{' '}
           <span className="font-medium">My Requests</span> dashboard —
           contact details are revealed only after the owner approves
@@ -666,7 +666,7 @@ function VolunteerRequestCTA({ resource, user }) {
         <button
           type="button"
           onClick={() => navigate('/volunteer/requests')}
-          className="inline-flex w-full justify-center rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 min-h-[44px]"
+          className="mt-3 inline-flex w-full justify-center rounded-md bg-safe-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-safe-800 min-h-[44px]"
         >
           View my requests
         </button>
@@ -675,11 +675,11 @@ function VolunteerRequestCTA({ resource, user }) {
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">
         Need this resource?
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="mt-1 text-sm text-slate-600">
         Volunteers request resources through a brief workflow — the
         owner approves, you collect, and contact details are revealed
         after approval.
@@ -689,17 +689,17 @@ function VolunteerRequestCTA({ resource, user }) {
         onClick={handleRequest}
         disabled={create.isPending || !!disabledReason}
         title={disabledReason || undefined}
-        className="inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
+        className="mt-3 inline-flex w-full justify-center rounded-md bg-alert-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-alert-800 disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
       >
         {create.isPending ? 'Sending request…' : 'Request this resource'}
       </button>
       {disabledReason && (
-        <p className="text-xs text-slate-500">{disabledReason}</p>
+        <p className="mt-2 text-xs text-slate-500">{disabledReason}</p>
       )}
       {errorMessage && (
         <p
           role="alert"
-          className="rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs text-alert-800"
+          className="mt-2 rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs text-alert-800"
         >
           {errorMessage}
         </p>
