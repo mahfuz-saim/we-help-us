@@ -248,6 +248,24 @@ async function run() {
     assert(/resource\.updatedAt/.test(src), 'page reads updatedAt');
     assert(/resource\.ownerName/.test(src), 'page reads ownerName (server-populated owner label)');
 
+    // Address chain (district > upazila > ...) — the page fetches the
+    // full ancestor chain and renders it via the existing
+    // useAreaChain hook. Verify the wiring.
+    assert(/useAreaChain/.test(src),
+      'page calls useAreaChain to resolve the address hierarchy');
+    assert(/areaChainLabel/.test(src),
+      'page renders an areaChainLabel (district › upazila › …)');
+
+    // Photo / map toggle — when the resource has a location, the
+    // page exposes a "Show on map" toggle that swaps the gallery
+    // for a Leaflet map pinned to the coordinate.
+    assert(/Show on map/.test(src),
+      'page renders a "Show on map" toggle');
+    assert(/MapContainer/.test(src),
+      'page mounts a react-leaflet MapContainer for the pinned location');
+    assert(/TileLayer/.test(src),
+      'page mounts a TileLayer (OSM) inside the map view');
+
     // 404 handling — page should bounce to /resources when the
     // server reports the id is unknown.
     assert(

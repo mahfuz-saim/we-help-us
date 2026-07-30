@@ -48,9 +48,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { MapContainer, Marker, TileLayer } from 'react-leaflet';
+import '../utils/leaflet-icons';
 
 import { useAuth } from '../context/AuthContext';
 import { useResource } from '../hooks/useResource';
+import { useAreaChain } from '../hooks/useAreas';
 import { useCreateRequest } from '../hooks/useMyRequests';
 import {
   getCategoryEmoji,
@@ -60,6 +63,8 @@ import {
 import { RESOURCE_STATUS } from '../utils/constants';
 import { formatDistance, haversineMeters } from '../utils/distance';
 import { extractFormError } from '../utils/formErrors';
+
+const SEARCH_RESULT_ZOOM = 16;
 
 export default function ResourceDetailsPage() {
   const { id } = useParams();
@@ -88,6 +93,41 @@ export default function ResourceDetailsPage() {
     );
   }, [user, resource]);
 
+  // Photo / map view toggle. Defaults to photo. Auto-resets to
+  // 'photo' if the resource has no location so the toggle can't get
+  // stuck in an empty-map state.
+  const hasLocation =
+    !!resource &&
+    !!resource.location &&
+    Array.isArray(resource.location.coordinates) &&
+    resource.location.coordinates.length === 2 &&
+    Number.isFinite(resource.location.coordinates[0]) &&
+    Number.isFinite(resource.location.coordinates[1]);
+  const [viewMode, setViewMode] = useState('photo');
+  useEffect(() => {
+    if (!hasLocation && viewMode === 'map') {
+      setViewMode('photo');
+    }
+  }, [hasLocation, viewMode]);
+
+  // Full address chain (district > upazila > union > ...). Fetches
+  // from GET /api/areas/:id via the existing useAreaChain hook.
+  const areaChainQuery = useAreaChain({
+    areaId: (resource && resource.areaId) || null,
+    enabled: Boolean(resource && resource.areaId),
+  });
+  const areaChainLabel = useMemo(() => {
+    const data = areaChainQuery.data;
+    if (!data || !Array.isArray(data.chain) || data.chain.length === 0) {
+      return null;
+    }
+    return data.chain
+      .map((n) => (n && n.name ? String(n.name) : null))
+      .filter(Boolean)
+      .join(' › ')
+      || null;
+  }, [areaChainQuery.data]);
+
   return (
     <div className="space-y-6">
       <BackBar />
@@ -103,19 +143,88 @@ export default function ResourceDetailsPage() {
 
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-6">
-              <DetailsGrid resource={resource} distance={distance} />
+              <DetailsGrid
+                resource={resource}
+                distance={distance}
+                areaChainLabel={areaChainLabel}
+                areaChainLoading={areaChainQuery.isLoading}
+              />
               <ActionRow resource={resource} user={user} />
             </div>
             <div>
-              <PhotoGallery
-                photos={resource.photos || []}
-                title={resource.title}
-                category={resource.category}
-              />
+              {hasLocation && (
+                <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-slate-200 bg-white p-1 text-xs shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('photo')}
+                    aria-pressed={viewMode === 'photo'}
+                    className={
+                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
+                      (viewMode === 'photo'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-700 hover:bg-slate-100')
+                    }
+                  >
+                    Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('map')}
+                    aria-pressed={viewMode === 'map'}
+                    className={
+                      'flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors ' +
+                      (viewMode === 'map'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-700 hover:bg-slate-100')
+                    }
+                  >
+                    Show on map
+                  </button>
+                </div>
+              )}
+              {viewMode === 'map' && hasLocation ? (
+                <ResourceMapPin resource={resource} />
+              ) : (
+                <PhotoGallery
+                  photos={resource.photos || []}
+                  title={resource.title}
+                  category={resource.category}
+                />
+              )}
             </div>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Read-only map surface for a single resource — shows the location
+ * coordinate pinned on the standard OSM tile layer. Modeled after
+ * `AreaSelector`'s read-only branch so the project keeps a single
+ * map style.
+ */
+function ResourceMapPin({ resource }) {
+  const [lng, lat] = resource.location.coordinates;
+  return (
+    <div className="aspect-[4/3] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <MapContainer
+        center={[lat, lng]}
+        zoom={SEARCH_RESULT_ZOOM}
+        scrollWheelZoom={false}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <Marker
+          position={[lat, lng]}
+          draggable={false}
+          eventHandlers={{ click: () => {} }}
+        />
+      </MapContainer>
     </div>
   );
 }
@@ -276,7 +385,7 @@ function Description({ text }) {
 
 // ── Details grid ─────────────────────────────────────────────────────────
 
-function DetailsGrid({ resource, distance }) {
+function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading }) {
   const rows = [];
   rows.push({
     label: 'Category',
@@ -304,16 +413,22 @@ function DetailsGrid({ resource, distance }) {
     value: (RESOURCE_STATUS[resource.status] || {}).label || resource.status,
   });
   if (resource.areaId) {
+    // Render the full hierarchy ("district › upazila › union") when
+    // the chain is available, the leaf name while the chain is still
+    // loading, the hex hint as a last resort fallback.
+    let areaValue;
+    if (areaChainLabel) {
+      areaValue = areaChainLabel;
+    } else if (areaChainLoading && resource.areaName) {
+      areaValue = resource.areaName;
+    } else {
+      areaValue = (
+        <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>
+      );
+    }
     rows.push({
-      label: 'Area',
-      // Surface the area name when the server populates it; fall back
-      // to the truncated hex hint when the area is unpopulated (older
-      // server versions or anonymous resources).
-      value: resource.areaName
-        ? resource.areaName
-        : (
-          <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>
-        ),
+      label: 'Address',
+      value: areaValue,
     });
   }
   if (distance != null) {
