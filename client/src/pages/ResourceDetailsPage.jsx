@@ -112,21 +112,30 @@ export default function ResourceDetailsPage() {
 
   // Full address chain (district > upazila > union > ...). Fetches
   // from GET /api/areas/:id via the existing useAreaChain hook.
+  // Defensive: the response is unwrapped through `data?.data`, the
+  // server returns `{ area, chain: [{id, level, name}, ...] }`, but
+  // we tolerate any variation and pull `name` through a guarded
+  // coercion so we can never render `[object Object]`.
   const areaChainQuery = useAreaChain({
     areaId: (resource && resource.areaId) || null,
     enabled: Boolean(resource && resource.areaId),
   });
-  const areaChainLabel = useMemo(() => {
+  const chainNodes = useMemo(() => {
     const data = areaChainQuery.data;
-    if (!data || !Array.isArray(data.chain) || data.chain.length === 0) {
-      return null;
-    }
-    return data.chain
-      .map((n) => (n && n.name ? String(n.name) : null))
-      .filter(Boolean)
-      .join(' › ')
-      || null;
+    if (!data) return [];
+    const chain = Array.isArray(data.chain) ? data.chain : [];
+    return chain
+      .map((n) => {
+        if (!n || typeof n !== 'object') return null;
+        const name = typeof n.name === 'string' ? n.name : null;
+        if (!name) return null;
+        return { id: n.id, level: n.level, name };
+      })
+      .filter(Boolean);
   }, [areaChainQuery.data]);
+  const areaChainLabel = chainNodes.length
+    ? chainNodes.map((n) => n.name).join(' › ')
+    : null;
 
   return (
     <div className="space-y-6">
@@ -148,6 +157,7 @@ export default function ResourceDetailsPage() {
                 distance={distance}
                 areaChainLabel={areaChainLabel}
                 areaChainLoading={areaChainQuery.isLoading}
+                chainNodes={chainNodes}
               />
               <ActionRow resource={resource} user={user} />
             </div>
@@ -385,7 +395,7 @@ function Description({ text }) {
 
 // ── Details grid ─────────────────────────────────────────────────────────
 
-function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading }) {
+function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading, chainNodes }) {
   const rows = [];
   rows.push({
     label: 'Category',
@@ -416,9 +426,23 @@ function DetailsGrid({ resource, distance, areaChainLabel, areaChainLoading }) {
     // Render the full hierarchy ("district › upazila › union") when
     // the chain is available, the leaf name while the chain is still
     // loading, the hex hint as a last resort fallback.
+    // The chain is rendered as a list of explicit <span> nodes with
+    // a ' › ' separator so React can never coerce an object into
+    // "[object Object]" here.
     let areaValue;
-    if (areaChainLabel) {
-      areaValue = areaChainLabel;
+    if (chainNodes && chainNodes.length > 0) {
+      areaValue = (
+        <span>
+          {chainNodes.map((node, i) => (
+            <span key={`${node.level || 'level'}-${i}`}>
+              {i > 0 && (
+                <span aria-hidden className="px-1 text-slate-400">›</span>
+              )}
+              {node.name}
+            </span>
+          ))}
+        </span>
+      );
     } else if (areaChainLoading && resource.areaName) {
       areaValue = resource.areaName;
     } else {
