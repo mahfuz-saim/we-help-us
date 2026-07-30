@@ -216,6 +216,33 @@ export default function ResourceDetailsPage() {
                   category={resource.category}
                 />
               )}
+              {/* "Open in Google Maps" — sits directly under the map view,
+                  in the right column. Only renders when:
+                    • the resource has a usable coordinate pair
+                      (hasLocation covers missing/NaN cases — googleMapsUrl
+                       also short-circuits to null for those)
+                    • the user is currently looking at the map
+                      (viewMode === 'map'), so it never appears under
+                      the photo gallery
+                  URL form: https://www.google.com/maps?q=<lat>,<lng> drops
+                  a red pin centered on the resource's exact (lat, lng).
+                  `target="_blank"` + `rel="noopener noreferrer"` open
+                  Maps in a new tab without exposing window.opener. */}
+              {hasLocation && viewMode === 'map' && googleMapsUrl(resource) && (
+                <div className="mt-2 flex justify-end">
+                  <a
+                    href={googleMapsUrl(resource)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open this resource's location in Google Maps"
+                    title="Open in Google Maps"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    <span aria-hidden>↗</span>
+                    <span>Open in Google Maps</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
@@ -798,4 +825,37 @@ function formatDate(iso) {
   } catch {
     return iso;
   }
+}
+
+/**
+ * Build a Google Maps "search by coordinates" URL for the resource's
+ * exact (lat, lng). The `q=lat,lng` form is the canonical way to drop
+ * a red pin at a coordinate without relying on the user's home/region
+ * bias (which the `@lat,lng,zoom` form can drift from).
+ *
+ * Returns `null` when the resource has no usable coordinate pair so
+ * the caller can hide the link rather than handing Google a broken
+ * `q=NaN,NaN`. Coordinates are rounded to 7 decimal places (≈11 mm of
+ * precision at the equator) which is well past useful but keeps the
+ * URL free of float-rendering artifacts.
+ *
+ * Privacy: the URL contains only the resource's coordinates. No
+ * resource id, owner id, area id, or contact info leaks through.
+ */
+function googleMapsUrl(resource) {
+  if (
+    !resource ||
+    !resource.location ||
+    !Array.isArray(resource.location.coordinates) ||
+    resource.location.coordinates.length !== 2
+  ) {
+    return null;
+  }
+  const [lng, lat] = resource.location.coordinates;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const round = (n) => {
+    // Strip the IEEE-754 noise without bringing in a dep just for this.
+    return Math.round(n * 1e7) / 1e7;
+  };
+  return `https://www.google.com/maps?q=${round(lat)},${round(lng)}`;
 }
