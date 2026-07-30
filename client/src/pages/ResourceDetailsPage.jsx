@@ -306,11 +306,14 @@ function DetailsGrid({ resource, distance }) {
   if (resource.areaId) {
     rows.push({
       label: 'Area',
-      // The 4.2 page intentionally surfaces the areaId hex truncated;
-      // Module 4.3 (map view) will resolve the area label via the
-      // cascading Area hook. Showing the hex keeps the page honest
-      // about which admin node the owner picked.
-      value: <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>,
+      // Surface the area name when the server populates it; fall back
+      // to the truncated hex hint when the area is unpopulated (older
+      // server versions or anonymous resources).
+      value: resource.areaName
+        ? resource.areaName
+        : (
+          <span className="font-mono text-xs">{(resource.areaId || '').slice(0, 8)}…</span>
+        ),
     });
   }
   if (distance != null) {
@@ -325,18 +328,22 @@ function DetailsGrid({ resource, distance }) {
       value: formatDate(resource.createdAt),
     });
   }
-  // The ownerId is a server-side opaque id — we show a short hex hint
-  // so the viewer can see "this resource is registered" but contact
-  // info NEVER appears here. Module 5.2 reveals the owner's contact
-  // info AFTER a request reaches APPROVED + COLLECTED.
+  // The ownerId is shown by NAME on the public details page (it's
+  // already a registered user; the resource itself is browseable).
+  // Contact info (email/phone) NEVER appears here — Module 5.2
+  // reveals the owner's contact info AFTER a request reaches
+  // APPROVED + COLLECTED. Fall back to the hex hint when the name is
+  // missing (older server versions).
   if (resource.ownerId) {
     rows.push({
       label: 'Registered by',
-      value: (
-        <span className="font-mono text-xs text-slate-500">
-          user {(resource.ownerId || '').slice(0, 8)}…
-        </span>
-      ),
+      value: resource.ownerName
+        ? resource.ownerName
+        : (
+          <span className="font-mono text-xs text-slate-500">
+            user {(resource.ownerId || '').slice(0, 8)}…
+          </span>
+        ),
     });
   }
 

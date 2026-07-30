@@ -242,9 +242,11 @@ async function run() {
     assert(/resource\.capacity/.test(src), 'page reads capacity');
     assert(/resource\.condition/.test(src), 'page reads condition');
     assert(/resource\.areaId/.test(src), 'page reads areaId');
+    assert(/resource\.areaName/.test(src), 'page reads areaName (server-populated area label)');
     assert(/resource\.location/.test(src), 'page reads location');
     assert(/resource\.createdAt/.test(src), 'page reads createdAt');
     assert(/resource\.updatedAt/.test(src), 'page reads updatedAt');
+    assert(/resource\.ownerName/.test(src), 'page reads ownerName (server-populated owner label)');
 
     // 404 handling — page should bounce to /resources when the
     // server reports the id is unknown.

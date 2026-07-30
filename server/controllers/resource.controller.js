@@ -46,9 +46,30 @@ const MAX_RADIUS_METERS = 100000; // 100 km
 // way IN, so the underlying record keeps its integrity.
 function publicResource(doc) {
   const obj = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  // After `.populate('ownerId', 'name')` the `ownerId` field becomes a
+  // populated subdoc like `{ _id, name }`. When unpopulated (the
+  // create / list / update paths do not populate), it's still a raw
+  // ObjectId. Handle both shapes so this helper stays safe across all
+  // call sites. Same for `areaId`.
+  const ownerName = (() => {
+    const v = obj.ownerId;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      // populated subdoc — has a `.name`
+      return typeof v.name === 'string' ? v.name : null;
+    }
+    return null;
+  })();
+  const areaName = (() => {
+    const v = obj.areaId;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return typeof v.name === 'string' ? v.name : null;
+    }
+    return null;
+  })();
   return {
     id: obj.id,
     ownerId: obj.ownerId ? obj.ownerId.toString() : null,
+    ownerName,
     category: obj.category,
     title: obj.title,
     description: obj.description,
@@ -57,6 +78,7 @@ function publicResource(doc) {
     condition: obj.condition,
     status: obj.status,
     areaId: obj.areaId ? obj.areaId.toString() : null,
+    areaName,
     location: obj.location || null,
     createdAt: obj.createdAt,
     updatedAt: obj.updatedAt,
@@ -257,9 +279,16 @@ async function listResources(req, res, next) {
 }
 
 // ── GET /api/resources/:id ────────────────────────────────────────────────
+// Single resource. Populates `ownerId` (name only) and `areaId` (name
+// only) so the resource details page can render the owner + area
+// names instead of opaque hex ids. Contact info (email/phone) is
+// NEVER populated here — that surfaces only through the request
+// lifecycle once a request reaches APPROVED + COLLECTED (Module 5.2).
 async function getResource(req, res, next) {
   try {
-    const doc = await Resource.findById(req.params.id);
+    const doc = await Resource.findById(req.params.id)
+      .populate('ownerId', 'name')
+      .populate('areaId', 'name');
     if (!doc) {
       throw new ApiError(404, 'Resource not found');
     }
