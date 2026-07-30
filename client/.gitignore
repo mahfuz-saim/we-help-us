@@ -1,0 +1,23 @@
+# Client-local ignores (root .gitignore already covers most)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

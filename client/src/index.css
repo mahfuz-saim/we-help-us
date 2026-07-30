@@ -1,0 +1,204 @@
+/**
+ * Tailwind v4 entry stylesheet.
+ *
+ * Tailwind v4 uses `@import "tailwindcss"` (no separate preflight / utilities /
+ * components layers needed at the import level). Custom design tokens
+ * (colors, fonts, etc.) live in the `@theme` block and become utility
+ * classes automatically.
+ *
+ * Theme: disaster-response palette
+ *   - alert    : red    — emergency / unavailable / critical
+ *   - safe     : green  — available / verified / success
+ *   - caution  : yellow — pending / limited / warning
+ * Plus neutral slate backgrounds, a neutral primary, and an accent for
+ * interactive elements.
+ */
+
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  /* Brand & status colors */
+  --color-alert-50:  #fef2f2;
+  --color-alert-100: #fee2e2;
+  --color-alert-200: #fecaca;
+  --color-alert-300: #fca5a5;
+  --color-alert-400: #f87171;
+  --color-alert-500: #ef4444;
+  --color-alert-600: #dc2626;
+  --color-alert-700: #b91c1c;
+  --color-alert-800: #991b1b;
+  --color-alert-900: #7f1d1d;
+
+  --color-safe-50:  #f0fdf4;
+  --color-safe-100: #dcfce7;
+  --color-safe-200: #bbf7d0;
+  --color-safe-300: #86efac;
+  --color-safe-400: #4ade80;
+  --color-safe-500: #22c55e;
+  --color-safe-600: #16a34a;
+  --color-safe-700: #15803d;
+  --color-safe-800: #166534;
+  --color-safe-900: #14532d;
+
+  --color-caution-50:  #fefce8;
+  --color-caution-100: #fef9c3;
+  --color-caution-200: #fef08a;
+  --color-caution-300: #fde047;
+  --color-caution-400: #facc15;
+  --color-caution-500: #eab308;
+  --color-caution-600: #ca8a04;
+  --color-caution-700: #a16207;
+  --color-caution-800: #854d0e;
+  --color-caution-900: #713f12;
+
+  /* Primary brand (anchored on alert-700 so it reads as "important" without
+     screaming) */
+  --color-brand-50:  #fff1f2;
+  --color-brand-100: #ffe4e6;
+  --color-brand-200: #fecdd3;
+  --color-brand-300: #fda4af;
+  --color-brand-400: #fb7185;
+  --color-brand-500: #f43f5e;
+  --color-brand-600: #e11d48;
+  --color-brand-700: #be123c;
+  --color-brand-800: #9f1239;
+  --color-brand-900: #881337;
+
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
+    sans-serif;
+}
+
+/* Leaflet base CSS — loaded by react-leaflet at runtime, but we include
+   the icons path reset for bundlers that try to resolve relative URLs. */
+.leaflet-container {
+  font-family: var(--font-sans);
+}
+
+/* Page-level niceties */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* ── Resource category map markers (Module 3.3) ──────────────────────── */
+/*
+ * Leaflet renders DivIcons inside its own .leaflet-div-icon container.
+ * We strip the default white box + border so the .whu-pin is the only
+ * visible element on the map. The .whu-pin itself is a 36x36 colored
+ * circle (Tailwind ring + bg from the design tokens above) with the
+ * category emoji in the center.
+ *
+ * Status overlays (Module 4.3) layer on top via .whu-pin--status-* —
+ * the class is added by the Leaflet DivIcon factory in
+ * utils/categories.js. For 3.3 we just define the base styles; the
+ * status-specific ring colors land alongside the map view.
+ */
+.leaflet-div-icon.whu-category-icon {
+  background: transparent;
+  border: none;
+}
+
+.whu-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  /* Module 9.1 — bumped the ring from 3px to 4px so the larger pin
+     keeps a visible outline. The ring width is `box-shadow` driven
+     (Leaflet DivIcons own their backgrounds). */
+  box-shadow:
+    0 0 0 4px currentColor,
+    0 2px 4px rgba(0, 0, 0, 0.15);
+  /* The pin's text color is the colored ring. We rely on Tailwind's
+     `text-<color>-<shade>` for the emoji fill, but the ring itself is
+     `currentColor` driven by the bg + ring classes above. */
+}
+
+.whu-pin__emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Status overlays — Module 4.3 sets the ring color per status so the
+ * marker at-a-glance reads as "is this resource available right now?"
+ *
+ * Convention (matches the spec's "green/yellow/red/black" mapping):
+ *   AVAILABLE    → safe      (green ring)
+ *   RESERVED     → caution   (yellow ring)
+ *   IN_USE       → caution   (orange-ish via darker caution)
+ *   UNAVAILABLE  → alert     (red ring) + slight desaturation so it's
+ *                               clearly "off" without disappearing
+ *
+ * We override the icon's `currentColor` (used by the .whu-pin box-shadow
+ * ring in the rule above) by setting a per-status `color`. Tailwind's
+ * `text-<color>-<shade>` would work too but the icon factory doesn't
+ * apply it — the status class is the only knob Module 4.3 has to
+ * recolor the marker, so we drive it directly here.
+ */
+.whu-pin--status-available {
+  color: var(--color-safe-600);
+  display: inherit;
+}
+.whu-pin--status-reserved {
+  color: var(--color-caution-600);
+  opacity: 0.92;
+}
+.whu-pin--status-in_use {
+  color: var(--color-caution-700);
+  opacity: 0.8;
+}
+.whu-pin--status-unavailable {
+  color: var(--color-alert-700);
+  opacity: 0.6;
+  filter: grayscale(0.5);
+}
+
+/* Map view (Module 4.3) — page-level helpers used by MapViewPage. */
+.whu-map {
+  height: 70vh;
+  min-height: 420px;
+  width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #e2e8f0; /* slate-200 */
+}
+
+.whu-map-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 500; /* above tiles, below modal popups */
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  max-width: 12rem;
+}
+
+/* Module 9.1 — touch-friendly Leaflet zoom controls.
+   Leaflet's stock controls are 30×30 px each (below the 44 px iOS
+   tap-target minimum). We bump them to 44 px and add rounded corners
+   to match the rest of the design system. */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  font-size: 22px;
+  border-radius: 6px;
+}
+.leaflet-bar a {
+  margin-bottom: 6px;
+}
+.leaflet-bar {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}

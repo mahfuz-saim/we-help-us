@@ -1,0 +1,12 @@
+# Server-local ignores (root .gitignore already covers most)
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/

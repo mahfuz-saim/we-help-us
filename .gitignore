@@ -35,3 +35,4 @@ coverage/
 # Project planning artifacts (kept out of source control)
 plan.txt
 progress.txt
+.puku-cli/
